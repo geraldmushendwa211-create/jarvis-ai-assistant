@@ -3,7 +3,10 @@ import json
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
-
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+from voice.listen import record_audio, transcribe_audio
+from voice.speak import speak
 # Load the API key from the .env file
 load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")
@@ -38,7 +41,9 @@ chat = client.chats.create(
 print("JARVIS is online. Type 'quit' to exit.\n")
 
 while True:
-    user_input = input("You: ")
+    file = record_audio()
+    user_input = transcribe_audio(file)
+    print("You:", user_input)
 
     if user_input.lower() == "quit":
         print("JARVIS: Goodbye, Sir Gerald.")
@@ -46,6 +51,7 @@ while True:
 
     response = chat.send_message(user_input)
     print("JARVIS:", response.text)
+    speak(response.text)
 
     # Save the updated conversation history to file
     updated_history = [
