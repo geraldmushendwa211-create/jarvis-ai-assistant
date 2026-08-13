@@ -8,6 +8,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from voice.listen import record_audio, transcribe_audio
 from voice.speak import speak
 import re
+from memory.obsidian_memory import save_to_obsidian
 
 # Load the API key from the .env file
 load_dotenv()
@@ -57,6 +58,7 @@ while True:
     response = chat.send_message(user_input)
     print("JARVIS:", response.text)
     speak(response.text)
+    save_to_obsidian(user_input, response.text)
 
     # Save the updated conversation history to file
     updated_history = [
