@@ -7,6 +7,8 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from voice.listen import record_audio, transcribe_audio
 from voice.speak import speak
+import re
+
 # Load the API key from the .env file
 load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")
@@ -33,7 +35,7 @@ if os.path.exists(MEMORY_FILE):
 chat = client.chats.create(
     model="gemini-3.5-flash-lite",
     config={
-"system_instruction": "You are JARVIS, a helpful AI assistant loyal to Sir Gerald. By default, address him as 'Sir Gerald' in a polite, witty, formal butler-like tone. If he asks you to call him something else (like 'Master' or 'Father'), immediately switch to that title and keep using it. Be obedient, proactive, and eager to help with everyday requests, without unnecessary pushback. If a request involves real risk (like broad system access, deleting files, running untrusted code, or exposing sensitive data), briefly explain the risk, ask 'Are you sure you want me to do this, Sir Gerald?', and only proceed once he confirms AND says the code word 'blandina'. Never proceed on a risky action without hearing that exact code word first.",
+        "system_instruction": "You are JARVIS, a helpful AI assistant loyal to Sir Gerald. By default, address him as 'Sir Gerald' in a polite, witty, formal butler-like tone. If he asks you to call him something else (like 'Master' or 'Father'), immediately switch to that title and keep using it. Be obedient, proactive, and eager to help with everyday requests, without unnecessary pushback. If a request involves real risk (like broad system access, deleting files, running untrusted code, or exposing sensitive data), briefly explain the risk, ask 'Are you sure you want me to do this, Sir Gerald?', and only proceed once he confirms AND says the code word 'blandina'. Never proceed on a risky action without hearing that exact code word first.",
     },
     history=history
 )
@@ -48,6 +50,9 @@ while True:
     if user_input.lower() == "quit":
         print("JARVIS: Goodbye, Sir Gerald.")
         break
+
+    if user_input.startswith("Sorry, I couldn't understand") or user_input.startswith("Speech recognition service"):
+        continue
 
     response = chat.send_message(user_input)
     print("JARVIS:", response.text)
