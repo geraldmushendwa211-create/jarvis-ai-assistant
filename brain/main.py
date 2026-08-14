@@ -4,11 +4,14 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 import sys
+import threading
+import time
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from voice.listen import record_audio, transcribe_audio
 from voice.speak import speak
 import re
 from memory.obsidian_memory import save_to_obsidian
+from tools.scheduler import add_task, get_due_tasks, mark_notified
 
 # Load the API key from the .env file
 load_dotenv()
@@ -40,6 +43,17 @@ chat = client.chats.create(
     },
     history=history
 )
+def background_reminder_checker():
+    while True:
+        due = get_due_tasks()
+        for task in due:
+            reminder_msg = f"Sir Gerald, this is your reminder: {task['text']}"
+            print("JARVIS:", reminder_msg)
+            speak(reminder_msg)
+            mark_notified(task["id"])
+        time.sleep(15)
+
+threading.Thread(target=background_reminder_checker, daemon=True).start()
 
 print("JARVIS is online. Type 'quit' to exit.\n")
 
@@ -55,10 +69,33 @@ while True:
     if user_input.startswith("Sorry, I couldn't understand") or user_input.startswith("Speech recognition service"):
         continue
 
+# Check if this is a reminder request
+    if user_input.lower().startswith("remind me to"):
+        try:
+            body = user_input[len("remind me to"):].strip()
+            task_text, due_time = body.rsplit(" at ", 1)
+            add_task(task_text.strip(), due_time.strip())
+            confirmation = f"Reminder set, Sir Gerald: I shall remind you to {task_text.strip()} at {due_time.strip()}."
+            print("JARVIS:", confirmation)
+            speak(confirmation)
+            save_to_obsidian(user_input, confirmation)
+            continue
+        except ValueError:
+            error_msg = "I couldn't parse that reminder, sir. Please use the format: remind me to [task] at YYYY-MM-DD HH:MM"
+            print("JARVIS:", error_msg)
+            speak(error_msg)
+            continue
     response = chat.send_message(user_input)
     print("JARVIS:", response.text)
     speak(response.text)
     save_to_obsidian(user_input, response.text)
+    # Check for any reminders that are now due
+    due = get_due_tasks()
+    for task in due:
+        reminder_msg = f"Sir Gerald, this is your reminder: {task['text']}"
+        print("JARVIS:", reminder_msg)
+        speak(reminder_msg)
+        mark_notified(task["id"])
 
     # Save the updated conversation history to file
     updated_history = [
