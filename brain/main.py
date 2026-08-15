@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import sys
 import threading
 import time
+from datetime import datetime
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from voice.listen import record_audio, transcribe_audio
 from voice.speak import speak
@@ -85,7 +86,8 @@ while True:
             print("JARVIS:", error_msg)
             speak(error_msg)
             continue
-    response = chat.send_message(user_input)
+    current_time_str = datetime.now().strftime("%A, %B %d, %Y at %H:%M")
+    response = chat.send_message(f"[Current real-world date and time: {current_time_str}] {user_input}")
     print("JARVIS:", response.text)
     speak(response.text)
     save_to_obsidian(user_input, response.text)
