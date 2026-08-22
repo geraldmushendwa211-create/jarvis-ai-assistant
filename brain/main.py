@@ -13,6 +13,9 @@ from voice.speak import speak, speak_streaming
 import re
 from memory.obsidian_memory import save_to_obsidian
 from tools.scheduler import add_task, get_due_tasks, mark_notified
+from core.permissions import request_permission, APPROVAL_REQUIRED, SAFE
+from core.skill_manager import find_matching_skill
+import skills.test_skill  # importing a skill file registers it automatically
 
 # Load the API key from the .env file
 load_dotenv()
@@ -72,6 +75,23 @@ while True:
     if user_input.startswith("Sorry, I couldn't understand") or user_input.startswith("Speech recognition service"):
         continue
 
+    # Check if any registered skill matches this input
+    matched_skill = find_matching_skill(user_input)
+    if matched_skill:
+        allowed = request_permission(
+            action=f"Run skill: {matched_skill['name']}",
+            reason=f"You said something matching this skill's trigger phrase.",
+            level=matched_skill["permission_level"],
+        )
+        if allowed:
+            skill_response = matched_skill["handler"](user_input)
+        else:
+            skill_response = f"Permission denied, Sir Gerald. I will not run the {matched_skill['name']} skill."
+        print("JARVIS:", skill_response)
+        speak(skill_response)
+        save_to_obsidian(user_input, skill_response)
+        continue
+
     # Check if this is a reminder request
     if "remind me to" in user_input.lower():
         trigger_idx = user_input.lower().index("remind me to")
@@ -108,6 +128,23 @@ while True:
                 print("JARVIS:", error_msg)
                 speak(error_msg)
                 continue
+
+    # Check if this is a delete request (SENSITIVE — goes through permission system)
+    if user_input.lower().startswith("delete "):
+        target_file = user_input[len("delete "):].strip()
+        allowed = request_permission(
+            action=f"Delete the file '{target_file}'",
+            reason="You asked me to delete this file.",
+            level=APPROVAL_REQUIRED,
+        )
+        if allowed:
+            confirmation = f"Understood, Sir Gerald. I have deleted '{target_file}'. (This is a test — no file was actually touched yet.)"
+        else:
+            confirmation = f"Permission denied, Sir Gerald. I will not delete '{target_file}'."
+        print("JARVIS:", confirmation)
+        speak(confirmation)
+        save_to_obsidian(user_input, confirmation)
+        continue
 
     current_time_str = datetime.now().strftime("%A, %B %d, %Y at %H:%M")
     t1 = time.time()
