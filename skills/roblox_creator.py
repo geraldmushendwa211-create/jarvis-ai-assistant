@@ -1,8 +1,11 @@
 import os
+import asyncio
 from datetime import datetime
 from core.skill_manager import register_skill
+from voice.speak import _generate_speech_file
 
 SCRIPTS_DIR = "workspace/scripts"
+AUDIO_DIR = "workspace/audio"
 
 
 def generate_script(topic, gemini_client):
@@ -36,12 +39,21 @@ def handle_roblox_creator(user_input, gemini_client=None):
     script_text = generate_script(topic, gemini_client)
 
     os.makedirs(SCRIPTS_DIR, exist_ok=True)
+    os.makedirs(AUDIO_DIR, exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    filepath = os.path.join(SCRIPTS_DIR, f"script_{timestamp}.txt")
-    with open(filepath, "w", encoding="utf-8") as f:
+
+    script_path = os.path.join(SCRIPTS_DIR, f"script_{timestamp}.txt")
+    with open(script_path, "w", encoding="utf-8") as f:
         f.write(script_text)
 
-    return f"Script complete, Sir Gerald. Here it is: {script_text}"
+    audio_path = os.path.join(AUDIO_DIR, f"voiceover_{timestamp}.mp3")
+    try:
+        asyncio.run(_generate_speech_file(script_text, audio_path))
+        audio_note = f" I've also recorded the voiceover and saved it to {audio_path}."
+    except Exception as e:
+        audio_note = f" I wrote the script, but the voiceover recording failed: {e}"
+
+    return f"Script complete, Sir Gerald.{audio_note} Here's the script: {script_text}"
 
 
 register_skill(
