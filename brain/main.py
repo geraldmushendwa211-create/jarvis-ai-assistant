@@ -16,6 +16,7 @@ from tools.scheduler import add_task, get_due_tasks, mark_notified
 from core.permissions import request_permission, APPROVAL_REQUIRED, SAFE
 from core.skill_manager import find_matching_skill
 import skills.test_skill  # importing a skill file registers it automatically
+import skills.roblox_creator
 
 # Load the API key from the .env file
 load_dotenv()
@@ -84,7 +85,7 @@ while True:
             level=matched_skill["permission_level"],
         )
         if allowed:
-            skill_response = matched_skill["handler"](user_input)
+            skill_response = matched_skill["handler"](user_input, gemini_client=client)
         else:
             skill_response = f"Permission denied, Sir Gerald. I will not run the {matched_skill['name']} skill."
         print("JARVIS:", skill_response)
