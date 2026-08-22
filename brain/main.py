@@ -6,10 +6,10 @@ from dotenv import load_dotenv
 import sys
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from voice.listen import record_audio, transcribe_audio
-from voice.speak import speak
+from voice.speak import speak, speak_streaming
 import re
 from memory.obsidian_memory import save_to_obsidian
 from tools.scheduler import add_task, get_due_tasks, mark_notified
@@ -60,7 +60,9 @@ print("JARVIS is online. Type 'quit' to exit.\n")
 
 while True:
     file = record_audio()
+    t0 = time.time()
     user_input = transcribe_audio(file)
+    print("Transcribe:", time.time() - t0)
     print("You:", user_input)
 
     if user_input.lower() == "quit":
@@ -70,27 +72,74 @@ while True:
     if user_input.startswith("Sorry, I couldn't understand") or user_input.startswith("Speech recognition service"):
         continue
 
-# Check if this is a reminder request
-    if user_input.lower().startswith("remind me to"):
-        try:
-            body = user_input[len("remind me to"):].strip()
-            task_text, due_time = body.rsplit(" at ", 1)
-            add_task(task_text.strip(), due_time.strip())
-            confirmation = f"Reminder set, Sir Gerald: I shall remind you to {task_text.strip()} at {due_time.strip()}."
+    # Check if this is a reminder request
+    if "remind me to" in user_input.lower():
+        trigger_idx = user_input.lower().index("remind me to")
+        body_full = user_input[trigger_idx + len("remind me to"):].strip()
+        relative_match = re.search(r"(.+?)\s+in\s+(\d+)\s*(minute|minutes|min|hour|hours|hr|hrs)$", body_full, re.IGNORECASE)
+        if relative_match:
+            task_text = relative_match.group(1).strip()
+            amount = int(relative_match.group(2))
+            unit = relative_match.group(3).lower()
+            if "hour" in unit or "hr" in unit:
+                due_dt = datetime.now() + timedelta(hours=amount)
+            else:
+                due_dt = datetime.now() + timedelta(minutes=amount)
+            due_time = due_dt.strftime("%Y-%m-%d %H:%M")
+            add_task(task_text, due_time)
+            confirmation = f"Reminder set, Sir Gerald: I shall remind you to {task_text} at {due_time}."
             print("JARVIS:", confirmation)
             speak(confirmation)
             save_to_obsidian(user_input, confirmation)
             continue
-        except ValueError:
-            error_msg = "I couldn't parse that reminder, sir. Please use the format: remind me to [task] at YYYY-MM-DD HH:MM"
-            print("JARVIS:", error_msg)
-            speak(error_msg)
-            continue
+        else:
+            try:
+                task_text, due_time = body_full.rsplit(" at ", 1)
+                task_text = task_text.strip()
+                due_time = due_time.strip()
+                add_task(task_text, due_time)
+                confirmation = f"Reminder set, Sir Gerald: I shall remind you to {task_text} at {due_time}."
+                print("JARVIS:", confirmation)
+                speak(confirmation)
+                save_to_obsidian(user_input, confirmation)
+                continue
+            except ValueError:
+                error_msg = "I couldn't parse that reminder, sir. Try: remind me to [task] in [number] minutes, or remind me to [task] at YYYY-MM-DD HH:MM"
+                print("JARVIS:", error_msg)
+                speak(error_msg)
+                continue
+
     current_time_str = datetime.now().strftime("%A, %B %d, %Y at %H:%M")
-    response = chat.send_message(f"[Current real-world date and time: {current_time_str}] {user_input}")
-    print("JARVIS:", response.text)
-    speak(response.text)
-    save_to_obsidian(user_input, response.text)
+    t1 = time.time()
+
+    full_response_parts = []
+
+    def sentence_stream():
+        buffer = ""
+        for chunk in chat.send_message_stream(f"[Current real-world date and time: {current_time_str}] {user_input}"):
+            if not chunk.text:
+                continue
+            full_response_parts.append(chunk.text)
+            buffer += chunk.text
+            while True:
+                match = re.search(r"[.!?](\s|$)", buffer)
+                if not match:
+                    break
+                idx = match.end()
+                sentence = buffer[:idx].strip()
+                buffer = buffer[idx:]
+                if sentence:
+                    yield sentence
+        if buffer.strip():
+            yield buffer.strip()
+
+    speak_streaming(sentence_stream())
+    print("Gemini+Speak total:", time.time() - t1)
+
+    response_text = "".join(full_response_parts)
+    print("JARVIS:", response_text)
+    save_to_obsidian(user_input, response_text)
+
     # Check for any reminders that are now due
     due = get_due_tasks()
     for task in due:
