@@ -17,6 +17,10 @@ from core.permissions import request_permission, APPROVAL_REQUIRED, SAFE
 from core.skill_manager import find_matching_skill
 import skills.test_skill  # importing a skill file registers it automatically
 import skills.roblox_creator
+from interface.status_window import start as start_status_window, set_state
+
+start_status_window()
+set_state("IDLE")
 
 # Load the API key from the .env file
 load_dotenv()
@@ -63,6 +67,7 @@ threading.Thread(target=background_reminder_checker, daemon=True).start()
 print("JARVIS is online. Type 'quit' to exit.\n")
 
 while True:
+    set_state("LISTENING")
     file = record_audio()
     t0 = time.time()
     user_input = transcribe_audio(file)
@@ -71,14 +76,19 @@ while True:
 
     if user_input.lower() == "quit":
         print("JARVIS: Goodbye, Sir Gerald.")
+        set_state("IDLE", "Shutting down.")
         break
 
     if user_input.startswith("Sorry, I couldn't understand") or user_input.startswith("Speech recognition service"):
+        set_state("IDLE")
         continue
+
+    set_state("THINKING", user_input)
 
     # Check if any registered skill matches this input
     matched_skill = find_matching_skill(user_input)
     if matched_skill:
+        set_state("EXECUTING", f"Running skill: {matched_skill['name']}")
         allowed = request_permission(
             action=f"Run skill: {matched_skill['name']}",
             reason=f"You said something matching this skill's trigger phrase.",
@@ -86,11 +96,14 @@ while True:
         )
         if allowed:
             skill_response = matched_skill["handler"](user_input, gemini_client=client)
+            set_state("SUCCESS", f"{matched_skill['name']} completed.")
         else:
             skill_response = f"Permission denied, Sir Gerald. I will not run the {matched_skill['name']} skill."
+            set_state("ERROR", "Permission denied.")
         print("JARVIS:", skill_response)
         speak(skill_response)
         save_to_obsidian(user_input, skill_response)
+        set_state("IDLE")
         continue
 
     # Check if this is a reminder request
@@ -112,6 +125,7 @@ while True:
             print("JARVIS:", confirmation)
             speak(confirmation)
             save_to_obsidian(user_input, confirmation)
+            set_state("IDLE")
             continue
         else:
             try:
@@ -123,11 +137,13 @@ while True:
                 print("JARVIS:", confirmation)
                 speak(confirmation)
                 save_to_obsidian(user_input, confirmation)
+                set_state("IDLE")
                 continue
             except ValueError:
                 error_msg = "I couldn't parse that reminder, sir. Try: remind me to [task] in [number] minutes, or remind me to [task] at YYYY-MM-DD HH:MM"
                 print("JARVIS:", error_msg)
                 speak(error_msg)
+                set_state("IDLE")
                 continue
 
     # Check if this is a delete request (SENSITIVE — goes through permission system)
@@ -145,6 +161,7 @@ while True:
         print("JARVIS:", confirmation)
         speak(confirmation)
         save_to_obsidian(user_input, confirmation)
+        set_state("IDLE")
         continue
 
     current_time_str = datetime.now().strftime("%A, %B %d, %Y at %H:%M")
@@ -177,6 +194,7 @@ while True:
     response_text = "".join(full_response_parts)
     print("JARVIS:", response_text)
     save_to_obsidian(user_input, response_text)
+    set_state("IDLE")
 
     # Check for any reminders that are now due
     due = get_due_tasks()
