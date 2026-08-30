@@ -1,2 +1,9 @@
 venv/
 .env
+__pycache__/
+*.pyc
+voice/temp.wav
+memory/history.json
+JarvisMemory/
+workspace/output/
+workspace/audio/

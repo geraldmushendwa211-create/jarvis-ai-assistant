@@ -4,6 +4,14 @@ import asyncio
 from datetime import datetime
 from core.skill_manager import register_skill
 from voice.speak import _generate_speech_file
+from skills.video_editor import (
+    trim_dead_space,
+    create_short,
+    generate_captions,
+    burn_captions,
+    add_background_music,
+    OUTPUT_DIR,
+)
 
 SCRIPTS_DIR = "workspace/scripts"
 AUDIO_DIR = "workspace/audio"
@@ -23,7 +31,7 @@ def generate_script(topic, gemini_client):
         "- Write ONLY the spoken narration text, no stage directions, no headers"
     )
     response = gemini_client.models.generate_content(
-        model="gemini-3.5-flash-lite",
+        model="gemini-3.5-flash",
         contents=prompt,
     )
     return response.text.strip()
@@ -64,17 +72,59 @@ def handle_roblox_creator(user_input, gemini_client=None):
     audio_path = os.path.join(AUDIO_DIR, f"voiceover_{timestamp}.mp3")
     try:
         asyncio.run(_generate_speech_file(script_text, audio_path))
-        audio_note = f" I've recorded the voiceover and saved it to {audio_path}."
     except Exception as e:
-        audio_note = f" I wrote the script, but the voiceover recording failed: {e}"
+        return f"I wrote the script, but the voiceover recording failed, Sir Gerald: {e}. Here's the script: {script_text}"
 
     clip_path = pick_gameplay_clip()
-    if clip_path:
-        gameplay_note = f" I've selected gameplay footage: {clip_path}."
-    else:
-        gameplay_note = " I couldn't find any gameplay footage in workspace/footage — drop a video file in there and I'll use it next time."
+    if not clip_path:
+        return (
+            f"I've recorded the voiceover, but couldn't find any gameplay footage in "
+            f"workspace/footage — drop a video file in there and try again. "
+            f"Here's the script: {script_text}"
+        )
 
-    return f"Script complete, Sir Gerald.{audio_note}{gameplay_note} Here's the script: {script_text}"
+    # Assemble the final video: trim dead space out of the voiceover, combine
+    # it with the gameplay footage, burn on styled captions, then mix in
+    # background music underneath.
+    try:
+        trimmed_audio_path = trim_dead_space(audio_path)
+
+        video_path = create_short(
+            trimmed_audio_path,
+            output_filename=f"output_{timestamp}.mp4",
+            footage_path=clip_path,
+        )
+        if not video_path:
+            raise RuntimeError("create_short() did not produce a video.")
+
+        ass_path = generate_captions(
+            trimmed_audio_path,
+            ass_path=os.path.join(OUTPUT_DIR, f"captions_{timestamp}.ass"),
+        )
+
+        captioned_path = burn_captions(
+            video_path,
+            ass_path,
+            output_filename=f"output_captioned_{timestamp}.mp4",
+        )
+
+        final_path = add_background_music(
+            captioned_path,
+            output_filename=f"output_final_{timestamp}.mp4",
+        )
+        if not final_path:
+            raise RuntimeError("add_background_music() did not produce a video.")
+
+    except Exception as e:
+        return (
+            f"I recorded the voiceover and picked footage ({clip_path}), but assembling "
+            f"the final video failed, Sir Gerald: {e}. Here's the script: {script_text}"
+        )
+
+    return (
+        f"Your Roblox rant short is ready, Sir Gerald — saved to {final_path}. "
+        f"Here's the script: {script_text}"
+    )
 
 
 register_skill(

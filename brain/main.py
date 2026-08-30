@@ -30,6 +30,12 @@ api_key = os.getenv("GEMINI_API_KEY")
 client = genai.Client(api_key=api_key)
 
 MEMORY_FILE = "memory/history.json"
+MAX_HISTORY_ENTRIES = 20  # roughly the last 10 back-and-forth exchanges — keeps latency from growing every turn
+
+JARVIS_CONFIG = types.GenerateContentConfig(
+    system_instruction="You are JARVIS, a helpful AI assistant loyal to Sir Gerald. By default, address him as 'Sir Gerald' in a polite, witty, formal butler-like tone. If he asks you to call him something else (like 'Master' or 'Father'), immediately switch to that title and keep using it. Be obedient, proactive, and eager to help with everyday requests, without unnecessary pushback. If a request involves real risk (like broad system access, deleting files, running untrusted code, or exposing sensitive data), briefly explain the risk, ask 'Are you sure you want me to do this, Sir Gerald?', and only proceed once he confirms AND says the code word 'blandina'. Never proceed on a risky action without hearing that exact code word first.",
+    thinking_config=types.ThinkingConfig(thinking_level="low"),
+)
 
 # Load previous conversation history, if it exists
 history = []
@@ -44,14 +50,16 @@ if os.path.exists(MEMORY_FILE):
             for item in raw_history
         ]
 
+history = history[-MAX_HISTORY_ENTRIES:]
+
 # Start a chat session, restoring past history if any
 chat = client.chats.create(
-    model="gemini-3.5-flash-lite",
-    config={
-        "system_instruction": "You are JARVIS, a helpful AI assistant loyal to Sir Gerald. By default, address him as 'Sir Gerald' in a polite, witty, formal butler-like tone. If he asks you to call him something else (like 'Master' or 'Father'), immediately switch to that title and keep using it. Be obedient, proactive, and eager to help with everyday requests, without unnecessary pushback. If a request involves real risk (like broad system access, deleting files, running untrusted code, or exposing sensitive data), briefly explain the risk, ask 'Are you sure you want me to do this, Sir Gerald?', and only proceed once he confirms AND says the code word 'blandina'. Never proceed on a risky action without hearing that exact code word first.",
-    },
+    model="gemini-3.5-flash",
+    config=JARVIS_CONFIG,
     history=history
 )
+
+
 def background_reminder_checker():
     while True:
         due = get_due_tasks()
@@ -168,10 +176,14 @@ while True:
     t1 = time.time()
 
     full_response_parts = []
+    timing = {"first_chunk": None}
 
     def sentence_stream():
         buffer = ""
         for chunk in chat.send_message_stream(f"[Current real-world date and time: {current_time_str}] {user_input}"):
+            if timing["first_chunk"] is None:
+                timing["first_chunk"] = time.time()
+                print(f">>> Time to FIRST Gemini chunk: {timing['first_chunk'] - t1:.2f}s")
             if not chunk.text:
                 continue
             full_response_parts.append(chunk.text)
@@ -187,6 +199,7 @@ while True:
                     yield sentence
         if buffer.strip():
             yield buffer.strip()
+        print(f">>> Time for FULL Gemini stream to finish: {time.time() - t1:.2f}s")
 
     speak_streaming(sentence_stream())
     print("Gemini+Speak total:", time.time() - t1)
@@ -204,10 +217,27 @@ while True:
         speak(reminder_msg)
         mark_notified(task["id"])
 
-    # Save the updated conversation history to file
+    # Save the updated conversation history to file, trimmed to the last
+    # MAX_HISTORY_ENTRIES so context (and latency) doesn't keep growing
     updated_history = [
         {"role": msg.role, "parts": [{"text": part.text} for part in msg.parts]}
         for msg in chat.get_history()
     ]
+    updated_history = updated_history[-MAX_HISTORY_ENTRIES:]
     with open(MEMORY_FILE, "w") as f:
         json.dump(updated_history, f, indent=2)
+
+    # Rebuild the chat session from the trimmed history, so the next turn
+    # starts lean instead of carrying the full growing conversation forward
+    trimmed_content_history = [
+        types.Content(
+            role=item["role"],
+            parts=[types.Part(text=p["text"]) for p in item["parts"]]
+        )
+        for item in updated_history
+    ]
+    chat = client.chats.create(
+        model="gemini-3.5-flash",
+        config=JARVIS_CONFIG,
+        history=trimmed_content_history
+    )

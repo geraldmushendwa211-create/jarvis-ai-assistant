@@ -5,7 +5,7 @@ import queue
 import os
 import time
 import re
-from playsound import playsound
+from playsound3 import playsound
 
 VOICE = "en-GB-RyanNeural"  # British male voice, JARVIS-style
 TEMP_DIR = "voice"
