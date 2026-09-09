@@ -1,6 +1,8 @@
 import tkinter as tk
 import threading
 import queue
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 _command_queue = queue.Queue()
 _window = None
@@ -16,6 +18,10 @@ STATE_COLORS = {
     "ERROR": "#e74c3c",
 }
 
+# Shared with the local state server below, so the 3D reactor interface
+# (running in a browser) can read JARVIS's live state.
+_current_state = {"state": "IDLE", "task_text": ""}
+
 
 def set_state(state, task_text=""):
     """Call this from anywhere in main.py to update the window."""
@@ -23,12 +29,14 @@ def set_state(state, task_text=""):
 
 
 def _apply_update():
+    global _current_state
     try:
         while True:
             state, task_text = _command_queue.get_nowait()
             color = STATE_COLORS.get(state, "#444444")
             _status_label.config(text=state, bg=color)
             _task_label.config(text=task_text)
+            _current_state = {"state": state, "task_text": task_text}
     except queue.Empty:
         pass
     _window.after(100, _apply_update)
@@ -54,10 +62,33 @@ def _run_window():
     _window.mainloop()
 
 
+class _StateHandler(BaseHTTPRequestHandler):
+    """Tiny local server so a browser page can read JARVIS's current state."""
+    def do_GET(self):
+        if self.path == "/state":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(_current_state).encode("utf-8"))
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, format, *args):
+        pass  # keep the terminal quiet — don't log every poll request
+
+
+def _run_state_server():
+    server = HTTPServer(("localhost", 8765), _StateHandler)
+    server.serve_forever()
+
+
 def start():
-    """Call this once at the top of main.py to open the window in the background."""
-    thread = threading.Thread(target=_run_window, daemon=True)
-    thread.start()
+    """Call this once at the top of main.py: opens the status window AND
+    starts the local state server the 3D reactor interface reads from."""
+    threading.Thread(target=_run_window, daemon=True).start()
+    threading.Thread(target=_run_state_server, daemon=True).start()
 
 
 if __name__ == "__main__":

@@ -13,6 +13,8 @@ build/
 .env
 *.key
 *.pem
+client_secrets.json
+youtube_token.json
 
 # ---- JARVIS runtime state ----
 memory/history.json
