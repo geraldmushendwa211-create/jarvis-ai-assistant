@@ -33,7 +33,7 @@ class VideoProject:
     topic: str
     niche: str = "generic"
     format: str = "short"       # short | long
-    status: str = "created"     # created|scripted|voiced|edited|captioned|done|failed
+    status: str = "created"     # created|planned|scripted|voiced|edited|captioned|done|published|failed
     script: str = ""
     script_path: str = ""
     audio_path: str = ""
@@ -55,6 +55,8 @@ class VideoProject:
     qc: dict = field(default_factory=dict)
     thumbnail_path: str = ""
     seo: dict = field(default_factory=dict)
+    # Phase-4 publishing field (set by the youtube_publisher skill)
+    youtube_url: str = ""
 
     @classmethod
     def new(cls, topic, niche="generic", format="short"):
@@ -115,3 +117,14 @@ class VideoProject:
             except (OSError, ValueError):
                 continue
         return projects
+
+    @classmethod
+    def find_by_output(cls, output_path):
+        """Most recent ticket whose output_path matches (or None)."""
+        if not output_path or not os.path.isdir(PROJECTS_DIR):
+            return None
+        wanted = os.path.abspath(output_path)
+        for ticket in cls.list_recent(limit=50):
+            if ticket.output_path and os.path.abspath(ticket.output_path) == wanted:
+                return ticket
+        return None

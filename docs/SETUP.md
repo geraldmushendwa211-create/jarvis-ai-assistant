@@ -151,6 +151,35 @@ next to the repo. Open that folder as an Obsidian vault and you get a
 searchable diary of everything you asked JARVIS. Nothing to configure —
 delete or ignore the folder if you don't want it (it's git-ignored).
 
+## YouTube upload setup (one-time, ~15 min)
+
+The uploader needs your own Google Cloud OAuth credentials (free) — Google
+requires each uploader to register, so JARVIS can never upload with someone
+else's keys.
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/) → create a
+   project (e.g. `JARVIS`).
+2. **APIs & Services → Library** → enable **YouTube Data API v3**.
+3. **APIs & Services → OAuth consent screen** → User type **External** → fill
+   app name + your email → add your Gmail under **Test users** → Save.
+4. **APIs & Services → Credentials → Create Credentials → OAuth client ID** →
+   type **Desktop app** → Create → **Download JSON**.
+5. Rename the download to `client_secrets.json` and put it in the repo root
+   (next to `README.md`). It's git-ignored — never commit or share it.
+6. Run `python -m skills.youtube_publisher` (or say *"upload my latest video
+   to youtube"*). A browser opens once for approval; afterwards the token in
+   `youtube_token.json` refreshes itself silently.
+
+Heads-up:
+
+- **Quota:** fresh projects get 10,000 API units/day and one upload costs
+  1,600 → roughly **6 uploads/day**. More than enough while testing; request
+  a quota increase from Google later if the channel grows.
+- **Testing mode:** while your OAuth app is unverified, only registered test
+  users can authorize — that's just you, which is all JARVIS needs.
+- Voice uploads always go up as **private** first. Use the CLI flow (or
+  YouTube Studio) to flip them public/unlisted.
+
 ## Troubleshooting
 
 | Symptom | Fix |

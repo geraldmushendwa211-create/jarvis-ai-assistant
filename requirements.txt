@@ -28,3 +28,7 @@ pillow>=10.0.0               # image handling (moviepy dependency)
 imageio>=2.30.0              # video I/O (moviepy dependency)
 tqdm>=4.60.0                 # progress bars (moviepy/whisper)
 requests>=2.30.0             # HTTP (used by several of the above)
+
+# ---- YouTube upload (Phase 4) ----
+google-api-python-client>=2.0.0  # YouTube Data API v3 (upload + metadata)
+google-auth-oauthlib>=1.0.0      # OAuth browser flow for Desktop-app credentials

@@ -74,9 +74,13 @@ instead of spending money.
 - `core/qc.py`: resolution/duration/audio/captions gate on every render,
   results stored on the project ticket
 
-## Phase 4 — Publish & approval
+## Phase 4 — Publish & approval 🚧 IN PROGRESS (upload shipped)
 
-- YouTube API OAuth (secure token store, never passwords) + upload skill
+- ✅ YouTube API OAuth (`tools/youtube_auth.py`): token file + silent refresh,
+  never passwords — built with Claude
+- ✅ `youtube_publisher` skill: voice (*"upload my latest video"*) with
+  `approval_required` permission + interactive CLI flow with code-word
+  confirm; published URL stamped on the project ticket
 - Human approval modes: manual / approve-each / scheduled-auto
 - Scheduler: *"upload Mon/Wed/Fri at 7 PM"* queue with retries
 - Repurposing: long video → N Shorts (scene detection + reframe)
