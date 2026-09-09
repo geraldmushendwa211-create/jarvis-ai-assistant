@@ -7,3 +7,5 @@ memory/history.json
 JarvisMemory/
 workspace/output/
 workspace/audio/
+client_secrets.json
+youtube_token.json

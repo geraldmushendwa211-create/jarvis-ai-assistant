@@ -175,69 +175,79 @@ while True:
     current_time_str = datetime.now().strftime("%A, %B %d, %Y at %H:%M")
     t1 = time.time()
 
-    full_response_parts = []
-    timing = {"first_chunk": None}
+    try:
+        full_response_parts = []
+        timing = {"first_chunk": None}
 
-    def sentence_stream():
-        buffer = ""
-        for chunk in chat.send_message_stream(f"[Current real-world date and time: {current_time_str}] {user_input}"):
-            if timing["first_chunk"] is None:
-                timing["first_chunk"] = time.time()
-                print(f">>> Time to FIRST Gemini chunk: {timing['first_chunk'] - t1:.2f}s")
-            if not chunk.text:
-                continue
-            full_response_parts.append(chunk.text)
-            buffer += chunk.text
-            while True:
-                match = re.search(r"[.!?](\s|$)", buffer)
-                if not match:
-                    break
-                idx = match.end()
-                sentence = buffer[:idx].strip()
-                buffer = buffer[idx:]
-                if sentence:
-                    yield sentence
-        if buffer.strip():
-            yield buffer.strip()
-        print(f">>> Time for FULL Gemini stream to finish: {time.time() - t1:.2f}s")
+        def sentence_stream():
+            buffer = ""
+            for chunk in chat.send_message_stream(f"[Current real-world date and time: {current_time_str}] {user_input}"):
+                if timing["first_chunk"] is None:
+                    timing["first_chunk"] = time.time()
+                    print(f">>> Time to FIRST Gemini chunk: {timing['first_chunk'] - t1:.2f}s")
+                if not chunk.text:
+                    continue
+                full_response_parts.append(chunk.text)
+                buffer += chunk.text
+                while True:
+                    match = re.search(r"[.!?](\s|$)", buffer)
+                    if not match:
+                        break
+                    idx = match.end()
+                    sentence = buffer[:idx].strip()
+                    buffer = buffer[idx:]
+                    if sentence:
+                        yield sentence
+            if buffer.strip():
+                yield buffer.strip()
+            print(f">>> Time for FULL Gemini stream to finish: {time.time() - t1:.2f}s")
 
-    speak_streaming(sentence_stream())
-    print("Gemini+Speak total:", time.time() - t1)
+        speak_streaming(sentence_stream())
+        print("Gemini+Speak total:", time.time() - t1)
 
-    response_text = "".join(full_response_parts)
-    print("JARVIS:", response_text)
-    save_to_obsidian(user_input, response_text)
-    set_state("IDLE")
+        response_text = "".join(full_response_parts)
+        print("JARVIS:", response_text)
+        save_to_obsidian(user_input, response_text)
+        set_state("IDLE")
 
-    # Check for any reminders that are now due
-    due = get_due_tasks()
-    for task in due:
-        reminder_msg = f"Sir Gerald, this is your reminder: {task['text']}"
-        print("JARVIS:", reminder_msg)
-        speak(reminder_msg)
-        mark_notified(task["id"])
+        # Check for any reminders that are now due
+        due = get_due_tasks()
+        for task in due:
+            reminder_msg = f"Sir Gerald, this is your reminder: {task['text']}"
+            print("JARVIS:", reminder_msg)
+            speak(reminder_msg)
+            mark_notified(task["id"])
 
-    # Save the updated conversation history to file, trimmed to the last
-    # MAX_HISTORY_ENTRIES so context (and latency) doesn't keep growing
-    updated_history = [
-        {"role": msg.role, "parts": [{"text": part.text} for part in msg.parts]}
-        for msg in chat.get_history()
-    ]
-    updated_history = updated_history[-MAX_HISTORY_ENTRIES:]
-    with open(MEMORY_FILE, "w") as f:
-        json.dump(updated_history, f, indent=2)
+        # Save the updated conversation history to file, trimmed to the last
+        # MAX_HISTORY_ENTRIES so context (and latency) doesn't keep growing
+        updated_history = [
+            {"role": msg.role, "parts": [{"text": part.text} for part in msg.parts]}
+            for msg in chat.get_history()
+        ]
+        updated_history = updated_history[-MAX_HISTORY_ENTRIES:]
+        with open(MEMORY_FILE, "w") as f:
+            json.dump(updated_history, f, indent=2)
 
-    # Rebuild the chat session from the trimmed history, so the next turn
-    # starts lean instead of carrying the full growing conversation forward
-    trimmed_content_history = [
-        types.Content(
-            role=item["role"],
-            parts=[types.Part(text=p["text"]) for p in item["parts"]]
+        # Rebuild the chat session from the trimmed history, so the next turn
+        # starts lean instead of carrying the full growing conversation forward
+        trimmed_content_history = [
+            types.Content(
+                role=item["role"],
+                parts=[types.Part(text=p["text"]) for p in item["parts"]]
+            )
+            for item in updated_history
+        ]
+        chat = client.chats.create(
+            model="gemini-3.5-flash",
+            config=JARVIS_CONFIG,
+            history=trimmed_content_history
         )
-        for item in updated_history
-    ]
-    chat = client.chats.create(
-        model="gemini-3.5-flash",
-        config=JARVIS_CONFIG,
-        history=trimmed_content_history
-    )
+
+    except Exception as e:
+        # Google's servers can be temporarily overloaded (503s like we just
+        # hit), or the network can drop mid-response. Fail safely instead of
+        # crashing the whole assistant.
+        print("Gemini call failed:", e)
+        set_state("ERROR", "AI service temporarily unavailable.")
+        speak("I'm having trouble reaching my AI service right now, Sir Gerald. Please try again in a moment.")
+        set_state("IDLE")
