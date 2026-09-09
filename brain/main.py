@@ -14,17 +14,39 @@ import re
 from memory.obsidian_memory import save_to_obsidian
 from tools.scheduler import add_task, get_due_tasks, mark_notified
 from core.permissions import request_permission, APPROVAL_REQUIRED, SAFE
-from core.skill_manager import find_matching_skill
-import skills.test_skill  # importing a skill file registers it automatically
-import skills.roblox_creator
-from interface.status_window import start as start_status_window, set_state
+from core.skill_manager import find_matching_skill, call_skill, load_all_skills
+
+# Auto-discover every module in skills/ — importing a skill file registers it.
+# A skill with missing third-party deps is skipped with a warning, not a crash.
+load_all_skills()
+
+try:
+    from interface.status_window import start as start_status_window, set_state
+except ImportError as e:
+    # tkinter isn't available on minimal installs (e.g. Linux without
+    # python3-tk). JARVIS works fine headless — status updates become no-ops.
+    print(f"[JARVIS] Status window disabled: {e}")
+
+    def start_status_window():
+        pass
+
+    def set_state(state, task_text=""):
+        pass
 
 start_status_window()
 set_state("IDLE")
 
-# Load the API key from the .env file
+# Load the API key from the .env file (see .env.example)
 load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")
+if not api_key:
+    raise SystemExit(
+        "[JARVIS] GEMINI_API_KEY is not set. Copy .env.example to .env, "
+        "paste your key from https://aistudio.google.com/apikey, and restart."
+    )
+
+# Model is configurable via .env so you can swap it without touching code.
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 
 # Create the client using your key
 client = genai.Client(api_key=api_key)
@@ -54,7 +76,7 @@ history = history[-MAX_HISTORY_ENTRIES:]
 
 # Start a chat session, restoring past history if any
 chat = client.chats.create(
-    model="gemini-3.5-flash",
+    model=GEMINI_MODEL,
     config=JARVIS_CONFIG,
     history=history
 )
@@ -103,8 +125,15 @@ while True:
             level=matched_skill["permission_level"],
         )
         if allowed:
-            skill_response = matched_skill["handler"](user_input, gemini_client=client)
-            set_state("SUCCESS", f"{matched_skill['name']} completed.")
+            try:
+                skill_response = call_skill(matched_skill, user_input, gemini_client=client)
+                set_state("SUCCESS", f"{matched_skill['name']} completed.")
+            except Exception as e:
+                skill_response = (
+                    f"That skill hit an error, Sir Gerald: {e}. "
+                    "I've left everything else untouched."
+                )
+                set_state("ERROR", str(e))
         else:
             skill_response = f"Permission denied, Sir Gerald. I will not run the {matched_skill['name']} skill."
             set_state("ERROR", "Permission denied.")
@@ -237,7 +266,7 @@ while True:
         for item in updated_history
     ]
     chat = client.chats.create(
-        model="gemini-3.5-flash",
+        model=GEMINI_MODEL,
         config=JARVIS_CONFIG,
         history=trimmed_content_history
     )

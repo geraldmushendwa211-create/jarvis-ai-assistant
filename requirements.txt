@@ -1,69 +1,30 @@
-aiohappyeyeballs==2.7.1
-aiohttp==3.14.3
-aiosignal==1.4.0
-annotated-types==0.8.0
-anyio==4.14.2
-attrs==26.1.0
-audioop-lts==0.2.2
-certifi==2026.7.22
-cffi==2.1.1
-charset-normalizer==3.4.9
-colorama==0.4.6
-comtypes==1.4.16
-cryptography==50.0.0
-decorator==5.3.1
-distro==1.9.0
-edge-tts==7.2.8
-frozenlist==1.8.0
-google-ai-generativelanguage==0.6.15
-google-api-core==2.25.2
-google-api-python-client==2.198.0
-google-auth==2.56.3
-google-auth-httplib2==0.4.1
-google-genai==2.17.0
-google-generativeai==0.8.6
-googleapis-common-protos==1.75.0
-grpcio==1.83.0
-grpcio-status==1.71.2
-h11==0.16.0
-httpcore==1.0.9
-httplib2==0.32.0
-httpx==0.28.1
-idna==3.18
-ImageIO==2.37.4
-imageio-ffmpeg==0.6.0
-moviepy==2.2.1
-multidict==6.7.1
-numpy==2.5.2
-pillow==11.3.0
-proglog==0.1.12
-propcache==0.5.2
-proto-plus==1.28.2
-protobuf==5.29.6
-pyasn1==0.6.4
-pyasn1_modules==0.4.2
-pycparser==3.0
-pydantic==2.13.4
-pydantic_core==2.46.4
-pyparsing==3.3.2
-pypiwin32==223
-python-dotenv==1.2.2
-pyttsx3==2.99
-pywin32==312
-requests==2.34.2
-scipy==1.18.1
-sniffio==1.3.1
-sounddevice==0.5.6
-SpeechRecognition==3.17.0
-standard-aifc==3.13.0
-standard-chunk==3.13.0
-tabulate==0.10.0
-tenacity==9.1.4
-tqdm==4.70.0
-typing-inspection==0.4.3
-typing_extensions==4.16.0
-uritemplate==4.2.0
-urllib3==2.7.0
-websockets==16.1.1
-yarl==1.24.5
-playsound3==3.3.2
+# ============================================================
+# JARVIS AI Assistant — Python dependencies
+# Install with:  pip install -r requirements.txt
+# Requires Python 3.10+ and (on Linux) the tkinter system package.
+# See docs/SETUP.md for full setup instructions.
+# ============================================================
+
+# ---- AI brain ----
+google-genai>=1.0.0          # Gemini SDK (from google import genai)
+python-dotenv>=1.0.0         # loads GEMINI_API_KEY from .env
+
+# ---- Voice: listen ----
+SpeechRecognition>=3.10.0    # speech-to-text (Google backend)
+sounddevice>=0.5.0           # microphone recording
+numpy>=1.26.0                # audio buffers
+scipy>=1.11.0                # wav file writing
+
+# ---- Voice: speak ----
+edge-tts>=7.0.0              # natural neural TTS (British Ryan voice)
+playsound3>=3.3.0            # mp3 playback (Linux needs GStreamer, see SETUP.md)
+
+# ---- Video pipeline ----
+moviepy>=2.0.0               # video assembly (v2 API: resized/subclipped/with_audio)
+faster-whisper>=1.0.0        # word-level transcription for captions + trim
+imageio-ffmpeg>=0.5.0        # bundles an ffmpeg binary (no system ffmpeg needed)
+pydub>=0.25.1                # silence trimming on voiceovers
+pillow>=10.0.0               # image handling (moviepy dependency)
+imageio>=2.30.0              # video I/O (moviepy dependency)
+tqdm>=4.60.0                 # progress bars (moviepy/whisper)
+requests>=2.30.0             # HTTP (used by several of the above)

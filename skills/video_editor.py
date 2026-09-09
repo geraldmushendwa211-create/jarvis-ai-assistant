@@ -13,6 +13,8 @@ OUTPUT_DIR = os.path.join(WORKSPACE_DIR, "output")
 TARGET_WIDTH = 1080
 TARGET_HEIGHT = 1920
 
+VIDEO_EXTENSIONS = (".mp4", ".mov", ".mkv", ".avi", ".webm")
+
 CAPTION_COLORS = {
     "gold":   "&H0000D7FF",
     "white":  "&H00FFFFFF",
@@ -27,13 +29,15 @@ CURRENT_CAPTION_COLOR = "gold"
 
 
 def find_footage_clip():
-    """Find the first video file in workspace/footage."""
+    """Find the first video file in workspace/footage (any supported format)."""
     if not os.path.exists(FOOTAGE_DIR):
         return None
-    video_files = glob.glob(os.path.join(FOOTAGE_DIR, "*.mp4"))
+    video_files = []
+    for ext in VIDEO_EXTENSIONS:
+        video_files.extend(glob.glob(os.path.join(FOOTAGE_DIR, f"*{ext}")))
     if not video_files:
         return None
-    return video_files[0]
+    return sorted(video_files)[0]
 
 
 def resize_to_vertical(clip):
@@ -257,6 +261,9 @@ def add_background_music(video_path, music_path=None, output_filename="output_wi
     """
     Mixes a background music track underneath the video's existing voiceover
     audio, auto-leveling the music volume against the actual measured loudness.
+
+    Background music is optional: if no track is found, the original video is
+    returned unchanged (with a warning) instead of failing the whole pipeline.
     """
     ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
 
@@ -264,8 +271,9 @@ def add_background_music(video_path, music_path=None, output_filename="output_wi
         music_path = os.path.join(WORKSPACE_DIR, "music", "background_music.mp3")
 
     if not os.path.exists(music_path):
-        print(f"No background music found at {music_path}")
-        return None
+        print(f"[JARVIS] No background music found at {music_path} — "
+              f"keeping voiceover-only audio.")
+        return video_path
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     output_path = os.path.join(OUTPUT_DIR, output_filename)
@@ -308,7 +316,8 @@ def add_background_music(video_path, music_path=None, output_filename="output_wi
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         print("ffmpeg error:", result.stderr[-1500:])
-        return None
+        print("[JARVIS] Music mix failed — keeping the video without background music.")
+        return video_path
 
     print(f"Video with music saved to: {output_path}")
     return output_path
