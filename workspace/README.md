@@ -12,6 +12,7 @@ example scripts are tracked.
 | `audio/` | Generated voiceovers (`voiceover_*.mp3`) and trimmed versions. Safe to delete. |
 | `scripts/` | Generated rant scripts (`script_*.txt`) and video ideas (`ideas_*.txt`). A few examples are tracked in git. |
 | `output/` | Finished videos (`output_final_*.mp4`), captions (`.ass`), and `latest.txt` pointing at the newest render. Safe to delete. |
+| `projects/` | One JSON job ticket per video attempt (topic, niche, stage history, paths). The seed of the content library. Safe to delete. |
 
 Typical flow: say **"make a Roblox rant about admin abusers"** → script lands in
 `scripts/`, voiceover in `audio/`, final vertical video in `output/`.

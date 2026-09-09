@@ -33,6 +33,8 @@ workspace/audio/*
 workspace/scripts/script_*.txt
 workspace/scripts/ideas_*.txt
 workspace/output/latest.txt
+workspace/projects/*.json
+!workspace/projects/.gitkeep
 
 # ---- User-supplied media (too large / personal for git) ----
 # Ignore everything in these folders except the .gitkeep placeholders.
