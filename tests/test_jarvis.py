@@ -6,6 +6,7 @@ Tests that need heavy third-party packages (moviepy, faster-whisper, edge-tts)
 are skipped automatically when those packages aren't installed.
 """
 
+import json
 import os
 import sys
 import tempfile
@@ -23,6 +24,7 @@ def _optional_import(module_name):
 
 roblox_creator = _optional_import("skills.roblox_creator")
 video_editor = _optional_import("skills.video_editor")
+speak_mod = _optional_import("voice.speak")
 
 from core import skill_manager  # noqa: E402
 from core.skill_manager import (  # noqa: E402
@@ -91,8 +93,22 @@ class TestScheduler(unittest.TestCase):
         scheduler.mark_notified(due[0]["id"])
         self.assertEqual(scheduler.get_due_tasks(), [])
 
-    def test_bad_date_is_ignored(self):
-        scheduler.add_task("broken", "not-a-date")
+    def test_add_task_rejects_bad_date(self):
+        # Bad reminders must fail loudly at creation time, never be
+        # silently accepted and then never fire.
+        with self.assertRaises(ValueError):
+            scheduler.add_task("broken", "not-a-date")
+        with self.assertRaises(ValueError):
+            scheduler.add_task("broken", "tomorrow at 5pm")
+        self.assertEqual(scheduler.load_tasks(), [])
+
+    def test_corrupt_entries_are_ignored(self):
+        # Legacy/corrupt rows already in the file must never crash the checker.
+        with open(scheduler.TASKS_FILE, "w") as f:
+            json.dump([
+                {"id": 1, "text": "broken", "due": "not-a-date", "notified": False},
+                {"id": 2, "text": "missing due key", "notified": False},
+            ], f)
         self.assertEqual(scheduler.get_due_tasks(), [])
 
 
@@ -148,6 +164,21 @@ class TestVideoEditor(unittest.TestCase):
     def test_supported_extensions_cover_common_formats(self):
         for ext in (".mp4", ".mov", ".mkv", ".avi"):
             self.assertIn(ext, video_editor.VIDEO_EXTENSIONS)
+
+
+@unittest.skipIf(speak_mod is None, "requires edge-tts/playsound3 (pip install -r requirements.txt)")
+class TestSpeakPlayback(unittest.TestCase):
+    def test_failing_generator_raises_instead_of_hanging(self):
+        def bad_stream():
+            # Yields nothing, then the stream drops. If the worker lost its
+            # "done" signal, _run_playback would hang here forever — so
+            # completing with SentenceSourceError proves the deadlock is fixed.
+            if False:
+                yield "never"
+            raise ConnectionError("stream dropped")
+
+        with self.assertRaises(speak_mod.SentenceSourceError):
+            speak_mod._run_playback(bad_stream())
 
 
 if __name__ == "__main__":

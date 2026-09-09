@@ -44,6 +44,8 @@ optionally put `background_music.mp3` in `workspace/music/`, then:
 
 ```bash
 python brain/main.py
+# No mic?  python brain/main.py --text --no-voice   (type + read, fully silent)
+# Flags:    python brain/main.py --help
 ```
 
 > 🧭 **New here?** Follow the step-by-step **[Setup Guide](docs/SETUP.md)** —

@@ -96,6 +96,13 @@ Full details: [`workspace/README.md`](../workspace/README.md).
 python brain/main.py
 ```
 
+No mic handy, or just testing? Type instead of speaking:
+
+```bash
+python brain/main.py --text              # type messages, still hear replies
+python brain/main.py --text --no-voice   # fully silent CLI: type + read
+```
+
 You'll see `JARVIS is online`, a small status window pops up, and it starts
 listening. Try:
 

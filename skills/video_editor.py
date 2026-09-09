@@ -193,24 +193,33 @@ def create_short(voiceover_path, output_filename="output_short.mp4", footage_pat
 
     print(f"Using footage: {footage_path}")
 
+    # Clips are closed in finally blocks: on Windows, an unclosed clip locks
+    # its file, so footage/outputs can't be moved or deleted until restart.
     voiceover = AudioFileClip(voiceover_path)
-    voice_duration = voiceover.duration
-    print(f"Voiceover duration: {voice_duration:.2f}s")
+    source = VideoFileClip(footage_path)
+    try:
+        voice_duration = voiceover.duration
+        print(f"Voiceover duration: {voice_duration:.2f}s")
 
-    footage = VideoFileClip(footage_path)
+        if source.duration < voice_duration:
+            loops_needed = int(voice_duration // source.duration) + 1
+            assembled = concatenate_videoclips([source] * loops_needed)
+        else:
+            assembled = source
+        try:
+            final = resize_to_vertical(assembled.subclipped(0, voice_duration))
+            final = final.with_audio(voiceover)
 
-    if footage.duration < voice_duration:
-        loops_needed = int(voice_duration // footage.duration) + 1
-        footage = concatenate_videoclips([footage] * loops_needed)
+            os.makedirs(OUTPUT_DIR, exist_ok=True)
+            output_path = os.path.join(OUTPUT_DIR, output_filename)
 
-    footage = footage.subclipped(0, voice_duration)
-    footage = resize_to_vertical(footage)
-    footage = footage.with_audio(voiceover)
-
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    output_path = os.path.join(OUTPUT_DIR, output_filename)
-
-    footage.write_videofile(output_path, fps=30, codec="libx264", audio_codec="aac")
+            final.write_videofile(output_path, fps=30, codec="libx264", audio_codec="aac")
+        finally:
+            if assembled is not source:
+                assembled.close()
+    finally:
+        source.close()
+        voiceover.close()
 
     print(f"Video saved to: {output_path}")
     return output_path
