@@ -1,3 +1,4 @@
+import collections
 import os
 import json
 from google import genai
@@ -9,22 +10,102 @@ import time
 from datetime import datetime, timedelta
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from voice.listen import record_audio, transcribe_audio
-from voice.speak import speak, speak_streaming
+from voice.speak import speak, speak_streaming, SentenceSourceError
 import re
 from memory.obsidian_memory import save_to_obsidian
 from tools.scheduler import add_task, get_due_tasks, mark_notified
 from core.permissions import request_permission, APPROVAL_REQUIRED, SAFE
-from core.skill_manager import find_matching_skill
-import skills.test_skill  # importing a skill file registers it automatically
-import skills.roblox_creator
-from interface.status_window import start as start_status_window, set_state
+from core.skill_manager import find_matching_skill, call_skill, load_all_skills
+
+# ---- CLI flags ----
+# --text: type messages instead of using the mic (great for testing).
+# --no-voice: print replies without playing voice audio.
+TEXT_MODE = "--text" in sys.argv
+VOICE_OUT = "--no-voice" not in sys.argv
+
+if "--help" in sys.argv or "-h" in sys.argv:
+    print("Usage: python brain/main.py [--text] [--no-voice]")
+    print("  --text      Type your messages instead of speaking into the mic.")
+    print("  --no-voice  Print replies without playing voice audio.")
+    raise SystemExit(0)
+
+# Auto-discover every module in skills/ — importing a skill file registers it.
+# A skill with missing third-party deps is skipped with a warning, not a crash.
+load_all_skills()
+
+try:
+    from interface.status_window import start as start_status_window, set_state
+except ImportError as e:
+    # tkinter isn't available on minimal installs (e.g. Linux without
+    # python3-tk). JARVIS works fine headless — status updates become no-ops.
+    print(f"[JARVIS] Status window disabled: {e}")
+
+    def start_status_window():
+        pass
+
+    def set_state(state, task_text=""):
+        pass
+
+
+def say(text):
+    """Speak a reply out loud (unless --no-voice)."""
+    if VOICE_OUT:
+        speak(text)
+
+
+def say_streaming(sentence_generator):
+    """Stream a reply out loud (unless --no-voice).
+
+    In silent mode the generator is still fully consumed, because consuming
+    it is what drives the Gemini stream and assembles the reply text.
+    """
+    if VOICE_OUT:
+        speak_streaming(sentence_generator)
+    else:
+        try:
+            collections.deque(sentence_generator, maxlen=0)
+        except Exception as e:
+            raise SentenceSourceError(str(e)) from e
+
+
+def get_user_input():
+    """Get one message from the user. Returns None if the session should end."""
+    if TEXT_MODE:
+        try:
+            return input("You: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return None
+    try:
+        audio_file = record_audio()
+    except Exception as e:
+        # No mic, mic busy, driver issue... — fall back to typing for this
+        # turn instead of crashing the whole assistant.
+        print(f"[JARVIS] Microphone failed ({e}). Type instead "
+              f"(or restart with --text for text-only mode).")
+        try:
+            return input("You (text): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return None
+    t0 = time.time()
+    text = transcribe_audio(audio_file)
+    print("Transcribe:", time.time() - t0)
+    return text
+
 
 start_status_window()
 set_state("IDLE")
 
-# Load the API key from the .env file
+# Load the API key from the .env file (see .env.example)
 load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")
+if not api_key:
+    raise SystemExit(
+        "[JARVIS] GEMINI_API_KEY is not set. Copy .env.example to .env, "
+        "paste your key from https://aistudio.google.com/apikey, and restart."
+    )
+
+# Model is configurable via .env so you can swap it without touching code.
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 
 # Create the client using your key
 client = genai.Client(api_key=api_key)
@@ -54,7 +135,7 @@ history = history[-MAX_HISTORY_ENTRIES:]
 
 # Start a chat session, restoring past history if any
 chat = client.chats.create(
-    model="gemini-3.5-flash",
+    model=GEMINI_MODEL,
     config=JARVIS_CONFIG,
     history=history
 )
@@ -66,21 +147,33 @@ def background_reminder_checker():
         for task in due:
             reminder_msg = f"Sir Gerald, this is your reminder: {task['text']}"
             print("JARVIS:", reminder_msg)
-            speak(reminder_msg)
+            say(reminder_msg)
             mark_notified(task["id"])
         time.sleep(15)
 
 threading.Thread(target=background_reminder_checker, daemon=True).start()
 
-print("JARVIS is online. Type 'quit' to exit.\n")
+print("JARVIS is online. Say or type 'quit' to exit.")
+if TEXT_MODE:
+    print("(Text mode: type your messages instead of speaking.)")
+if not VOICE_OUT:
+    print("(Silent mode: replies print without voice audio.)")
+print()
 
 while True:
     set_state("LISTENING")
-    file = record_audio()
-    t0 = time.time()
-    user_input = transcribe_audio(file)
-    print("Transcribe:", time.time() - t0)
+    user_input = get_user_input()
+
+    if user_input is None:
+        print("JARVIS: Goodbye, Sir Gerald.")
+        set_state("IDLE", "Shutting down.")
+        break
+
     print("You:", user_input)
+
+    if not user_input:
+        set_state("IDLE")
+        continue
 
     if user_input.lower() == "quit":
         print("JARVIS: Goodbye, Sir Gerald.")
@@ -103,13 +196,20 @@ while True:
             level=matched_skill["permission_level"],
         )
         if allowed:
-            skill_response = matched_skill["handler"](user_input, gemini_client=client)
-            set_state("SUCCESS", f"{matched_skill['name']} completed.")
+            try:
+                skill_response = call_skill(matched_skill, user_input, gemini_client=client)
+                set_state("SUCCESS", f"{matched_skill['name']} completed.")
+            except Exception as e:
+                skill_response = (
+                    f"That skill hit an error, Sir Gerald: {e}. "
+                    "I've left everything else untouched."
+                )
+                set_state("ERROR", str(e))
         else:
             skill_response = f"Permission denied, Sir Gerald. I will not run the {matched_skill['name']} skill."
             set_state("ERROR", "Permission denied.")
         print("JARVIS:", skill_response)
-        speak(skill_response)
+        say(skill_response)
         save_to_obsidian(user_input, skill_response)
         set_state("IDLE")
         continue
@@ -131,7 +231,7 @@ while True:
             add_task(task_text, due_time)
             confirmation = f"Reminder set, Sir Gerald: I shall remind you to {task_text} at {due_time}."
             print("JARVIS:", confirmation)
-            speak(confirmation)
+            say(confirmation)
             save_to_obsidian(user_input, confirmation)
             set_state("IDLE")
             continue
@@ -140,19 +240,21 @@ while True:
                 task_text, due_time = body_full.rsplit(" at ", 1)
                 task_text = task_text.strip()
                 due_time = due_time.strip()
+                # add_task validates the format and raises ValueError on garbage,
+                # so a typo'd date is rejected here instead of never firing.
                 add_task(task_text, due_time)
-                confirmation = f"Reminder set, Sir Gerald: I shall remind you to {task_text} at {due_time}."
-                print("JARVIS:", confirmation)
-                speak(confirmation)
-                save_to_obsidian(user_input, confirmation)
-                set_state("IDLE")
-                continue
             except ValueError:
                 error_msg = "I couldn't parse that reminder, sir. Try: remind me to [task] in [number] minutes, or remind me to [task] at YYYY-MM-DD HH:MM"
                 print("JARVIS:", error_msg)
-                speak(error_msg)
+                say(error_msg)
                 set_state("IDLE")
                 continue
+            confirmation = f"Reminder set, Sir Gerald: I shall remind you to {task_text} at {due_time}."
+            print("JARVIS:", confirmation)
+            say(confirmation)
+            save_to_obsidian(user_input, confirmation)
+            set_state("IDLE")
+            continue
 
     # Check if this is a delete request (SENSITIVE — goes through permission system)
     if user_input.lower().startswith("delete "):
@@ -167,7 +269,7 @@ while True:
         else:
             confirmation = f"Permission denied, Sir Gerald. I will not delete '{target_file}'."
         print("JARVIS:", confirmation)
-        speak(confirmation)
+        say(confirmation)
         save_to_obsidian(user_input, confirmation)
         set_state("IDLE")
         continue
@@ -175,79 +277,85 @@ while True:
     current_time_str = datetime.now().strftime("%A, %B %d, %Y at %H:%M")
     t1 = time.time()
 
+    full_response_parts = []
+    timing = {"first_chunk": None}
+
+    def sentence_stream():
+        buffer = ""
+        for chunk in chat.send_message_stream(f"[Current real-world date and time: {current_time_str}] {user_input}"):
+            if timing["first_chunk"] is None:
+                timing["first_chunk"] = time.time()
+                print(f">>> Time to FIRST Gemini chunk: {timing['first_chunk'] - t1:.2f}s")
+            if not chunk.text:
+                continue
+            full_response_parts.append(chunk.text)
+            buffer += chunk.text
+            while True:
+                match = re.search(r"[.!?](\s|$)", buffer)
+                if not match:
+                    break
+                idx = match.end()
+                sentence = buffer[:idx].strip()
+                buffer = buffer[idx:]
+                if sentence:
+                    yield sentence
+        if buffer.strip():
+            yield buffer.strip()
+        print(f">>> Time for FULL Gemini stream to finish: {time.time() - t1:.2f}s")
+
+    # Snapshot history so a failed turn can be rolled back cleanly below.
+    history_before_turn = list(chat.get_history())
     try:
-        full_response_parts = []
-        timing = {"first_chunk": None}
-
-        def sentence_stream():
-            buffer = ""
-            for chunk in chat.send_message_stream(f"[Current real-world date and time: {current_time_str}] {user_input}"):
-                if timing["first_chunk"] is None:
-                    timing["first_chunk"] = time.time()
-                    print(f">>> Time to FIRST Gemini chunk: {timing['first_chunk'] - t1:.2f}s")
-                if not chunk.text:
-                    continue
-                full_response_parts.append(chunk.text)
-                buffer += chunk.text
-                while True:
-                    match = re.search(r"[.!?](\s|$)", buffer)
-                    if not match:
-                        break
-                    idx = match.end()
-                    sentence = buffer[:idx].strip()
-                    buffer = buffer[idx:]
-                    if sentence:
-                        yield sentence
-            if buffer.strip():
-                yield buffer.strip()
-            print(f">>> Time for FULL Gemini stream to finish: {time.time() - t1:.2f}s")
-
-        speak_streaming(sentence_stream())
-        print("Gemini+Speak total:", time.time() - t1)
-
-        response_text = "".join(full_response_parts)
-        print("JARVIS:", response_text)
-        save_to_obsidian(user_input, response_text)
-        set_state("IDLE")
-
-        # Check for any reminders that are now due
-        due = get_due_tasks()
-        for task in due:
-            reminder_msg = f"Sir Gerald, this is your reminder: {task['text']}"
-            print("JARVIS:", reminder_msg)
-            speak(reminder_msg)
-            mark_notified(task["id"])
-
-        # Save the updated conversation history to file, trimmed to the last
-        # MAX_HISTORY_ENTRIES so context (and latency) doesn't keep growing
-        updated_history = [
-            {"role": msg.role, "parts": [{"text": part.text} for part in msg.parts]}
-            for msg in chat.get_history()
-        ]
-        updated_history = updated_history[-MAX_HISTORY_ENTRIES:]
-        with open(MEMORY_FILE, "w") as f:
-            json.dump(updated_history, f, indent=2)
-
-        # Rebuild the chat session from the trimmed history, so the next turn
-        # starts lean instead of carrying the full growing conversation forward
-        trimmed_content_history = [
-            types.Content(
-                role=item["role"],
-                parts=[types.Part(text=p["text"]) for p in item["parts"]]
-            )
-            for item in updated_history
-        ]
+        say_streaming(sentence_stream())
+    except SentenceSourceError as e:
+        print(f"[JARVIS] AI stream failed, rolling back this turn: {e}")
         chat = client.chats.create(
-            model="gemini-3.5-flash",
+            model=GEMINI_MODEL,
             config=JARVIS_CONFIG,
-            history=trimmed_content_history
+            history=history_before_turn,
         )
-
-    except Exception as e:
-        # Google's servers can be temporarily overloaded (503s like we just
-        # hit), or the network can drop mid-response. Fail safely instead of
-        # crashing the whole assistant.
-        print("Gemini call failed:", e)
-        set_state("ERROR", "AI service temporarily unavailable.")
-        speak("I'm having trouble reaching my AI service right now, Sir Gerald. Please try again in a moment.")
+        failure_msg = "I lost my connection mid-thought, Sir Gerald. Please try again."
+        print("JARVIS:", failure_msg)
+        say(failure_msg)
+        save_to_obsidian(user_input, f"(reply failed: {e})")
         set_state("IDLE")
+        continue
+    print("Gemini+Speak total:", time.time() - t1)
+
+    response_text = "".join(full_response_parts)
+    print("JARVIS:", response_text)
+    save_to_obsidian(user_input, response_text)
+    set_state("IDLE")
+
+    # Check for any reminders that are now due
+    due = get_due_tasks()
+    for task in due:
+        reminder_msg = f"Sir Gerald, this is your reminder: {task['text']}"
+        print("JARVIS:", reminder_msg)
+        say(reminder_msg)
+        mark_notified(task["id"])
+
+    # Save the updated conversation history to file, trimmed to the last
+    # MAX_HISTORY_ENTRIES so context (and latency) doesn't keep growing
+    updated_history = [
+        {"role": msg.role, "parts": [{"text": part.text} for part in msg.parts]}
+        for msg in chat.get_history()
+    ]
+    updated_history = updated_history[-MAX_HISTORY_ENTRIES:]
+    with open(MEMORY_FILE, "w") as f:
+        json.dump(updated_history, f, indent=2)
+
+    # Rebuild the chat session from the trimmed history, so the next turn
+    # starts lean instead of carrying the full growing conversation forward
+    trimmed_content_history = [
+        types.Content(
+            role=item["role"],
+            parts=[types.Part(text=p["text"]) for p in item["parts"]]
+        )
+        for item in updated_history
+    ]
+    chat = client.chats.create(
+        model=GEMINI_MODEL,
+        config=JARVIS_CONFIG,
+        history=trimmed_content_history
+    )

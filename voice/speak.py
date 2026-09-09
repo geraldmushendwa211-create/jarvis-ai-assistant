@@ -11,6 +11,12 @@ VOICE = "en-GB-RyanNeural"  # British male voice, JARVIS-style
 TEMP_DIR = "voice"
 
 
+class SentenceSourceError(Exception):
+    """The sentence generator itself failed (e.g. the Gemini stream dropped
+    mid-reply). Distinct from per-sentence TTS errors, which are logged and
+    skipped so playback of the remaining sentences can continue."""
+
+
 def split_into_sentences(text):
     sentences = re.split(r'(?<=[.!?])\s+', text.strip())
     return [s for s in sentences if s]
@@ -30,7 +36,11 @@ def speak(text):
 
 def speak_streaming(sentence_generator):
     """Same as speak(), but takes sentences one at a time as they arrive
-    (e.g. from a streaming AI response) instead of a full block of text."""
+    (e.g. from a streaming AI response) instead of a full block of text.
+
+    Raises SentenceSourceError if the generator fails partway — after playing
+    whatever sentences already arrived.
+    """
     _run_playback(sentence_generator)
 
 
@@ -40,26 +50,38 @@ def _run_playback(sentence_iterable):
 
     def worker():
         i = 0
-        for sentence in sentence_iterable:
-            if not sentence or not sentence.strip():
-                continue
-            filepath = os.path.join(TEMP_DIR, f"reply_{i}.mp3")
-            try:
-                asyncio.run(_generate_speech_file(sentence, filepath))
-                file_queue.put(filepath)
-            except Exception as e:
-                print(f"[Speech Generation Error]: {e}")
-            i += 1
-        file_queue.put(None)
+        try:
+            for sentence in sentence_iterable:
+                if not sentence or not sentence.strip():
+                    continue
+                filepath = os.path.join(TEMP_DIR, f"reply_{i}.mp3")
+                try:
+                    asyncio.run(_generate_speech_file(sentence, filepath))
+                    file_queue.put(filepath)
+                except Exception as e:
+                    print(f"[Speech Generation Error]: {e}")
+                i += 1
+        except Exception as e:
+            # The sentence source blew up (e.g. Gemini stream dropped).
+            # Forward the failure so the caller can report it...
+            file_queue.put(e)
+        finally:
+            # ...but ALWAYS release the consumer, or it waits forever.
+            file_queue.put(None)
 
     gen_thread = threading.Thread(target=worker)
     gen_thread.start()
 
+    source_error = None
     first_play = True
     while True:
-        filepath = file_queue.get()
-        if filepath is None:
+        item = file_queue.get()
+        if item is None:
             break
+        if isinstance(item, Exception):
+            source_error = item
+            continue  # keep draining until the sentinel arrives
+        filepath = item
         try:
             if first_play:
                 print(f">>> Time until first speech: {time.time() - entry_time:.2f}s")
@@ -72,6 +94,9 @@ def _run_playback(sentence_iterable):
             print(f"[Playback Error]: {e}")
 
     gen_thread.join()
+
+    if source_error is not None:
+        raise SentenceSourceError(f"sentence source failed: {source_error}") from source_error
 
 
 if __name__ == "__main__":

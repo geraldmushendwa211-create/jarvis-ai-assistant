@@ -3,7 +3,11 @@ import glob
 import subprocess
 from moviepy import VideoFileClip, AudioFileClip, concatenate_videoclips
 from faster_whisper import WhisperModel
+from pydub import AudioSegment
 import imageio_ffmpeg
+from core.captions import (chunk_words, compute_keep_segments, karaoke_events,
+                           remap_words)
+from core.sfx import pick_moments as pick_sfx_moments
 from core.skill_manager import register_skill
 
 WORKSPACE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "workspace")
@@ -12,6 +16,14 @@ OUTPUT_DIR = os.path.join(WORKSPACE_DIR, "output")
 
 TARGET_WIDTH = 1080
 TARGET_HEIGHT = 1920
+LANDSCAPE_WIDTH = 1920
+LANDSCAPE_HEIGHT = 1080
+
+VIDEO_EXTENSIONS = (".mp4", ".mov", ".mkv", ".avi", ".webm")
+
+# Rendering: "veryfast" suits older CPUs (e.g. i7-4770) with negligible quality
+# loss for Shorts. Set JARVIS_RENDER_PRESET=medium|slow for maximum quality.
+RENDER_PRESET = os.getenv("JARVIS_RENDER_PRESET", "veryfast")
 
 CAPTION_COLORS = {
     "gold":   "&H0000D7FF",
@@ -24,36 +36,55 @@ CAPTION_COLORS = {
 }
 
 CURRENT_CAPTION_COLOR = "gold"
+CURRENT_CAPTION_STYLE = "pop"  # pop | karaoke
+
+_WHISPER_MODEL = None
+
+
+def _get_whisper_model():
+    """Load the Whisper model once per session instead of per call."""
+    global _WHISPER_MODEL
+    if _WHISPER_MODEL is None:
+        print("Loading Whisper model (once per session)...")
+        _WHISPER_MODEL = WhisperModel("base", device="cpu", compute_type="int8")
+    return _WHISPER_MODEL
 
 
 def find_footage_clip():
-    """Find the first video file in workspace/footage."""
+    """Find the first video file in workspace/footage (any supported format)."""
     if not os.path.exists(FOOTAGE_DIR):
         return None
-    video_files = glob.glob(os.path.join(FOOTAGE_DIR, "*.mp4"))
+    video_files = []
+    for ext in VIDEO_EXTENSIONS:
+        video_files.extend(glob.glob(os.path.join(FOOTAGE_DIR, f"*{ext}")))
     if not video_files:
         return None
-    return video_files[0]
+    return sorted(video_files)[0]
 
 
-def resize_to_vertical(clip):
-    """Crop/resize a clip to fill a 1080x1920 vertical frame."""
+def resize_to_fill(clip, width, height):
+    """Crop/resize a clip to fill a width x height frame."""
     clip_ratio = clip.w / clip.h
-    target_ratio = TARGET_WIDTH / TARGET_HEIGHT
+    target_ratio = width / height
 
     if clip_ratio > target_ratio:
-        clip = clip.resized(height=TARGET_HEIGHT)
-        clip = clip.cropped(x_center=clip.w / 2, width=TARGET_WIDTH)
+        clip = clip.resized(height=height)
+        clip = clip.cropped(x_center=clip.w / 2, width=width)
     else:
-        clip = clip.resized(width=TARGET_WIDTH)
-        clip = clip.cropped(y_center=clip.h / 2, height=TARGET_HEIGHT)
+        clip = clip.resized(width=width)
+        clip = clip.cropped(y_center=clip.h / 2, height=height)
 
     return clip
 
 
+def resize_to_vertical(clip):
+    """Crop/resize a clip to fill a 1080x1920 vertical frame."""
+    return resize_to_fill(clip, TARGET_WIDTH, TARGET_HEIGHT)
+
+
 def transcribe_words(voiceover_path):
-    """Transcribe voiceover_path with faster-whisper, return a list of word timings."""
-    model = WhisperModel("base", device="cpu", compute_type="int8")
+    """Transcribe voiceover_path with faster-whisper, return word timings."""
+    model = _get_whisper_model()
     segments, _ = model.transcribe(voiceover_path, word_timestamps=True)
     words = []
     for segment in segments:
@@ -62,9 +93,10 @@ def transcribe_words(voiceover_path):
     return words
 
 
-def generate_captions(voiceover_path, ass_path=None, color=None):
+def generate_captions(voiceover_path, ass_path=None, color=None, words=None, style=None):
     """
-    Transcribe the voiceover and write a stylized word-by-word ASS caption file.
+    Transcribe the voiceover (unless word timings are passed in) and write a
+    stylized ASS caption file. style: "pop" (default) or "karaoke".
     """
     if ass_path is None:
         ass_path = os.path.join(OUTPUT_DIR, "captions.ass")
@@ -72,9 +104,13 @@ def generate_captions(voiceover_path, ass_path=None, color=None):
     if color is None:
         color = CURRENT_CAPTION_COLOR
 
+    if style is None:
+        style = CURRENT_CAPTION_STYLE
+
     primary_colour = CAPTION_COLORS.get(color, CAPTION_COLORS["gold"])
 
-    words = transcribe_words(voiceover_path)
+    if words is None:
+        words = transcribe_words(voiceover_path)
 
     def format_time(seconds):
         h = int(seconds // 3600)
@@ -101,17 +137,21 @@ def generate_captions(voiceover_path, ass_path=None, color=None):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     with open(ass_path, "w", encoding="utf-8") as f:
         f.write(header)
-        for w in words:
-            start = format_time(w["start"])
-            end = format_time(w["end"])
-            text = w["word"].upper()
-            line = (
-                f"Dialogue: 0,{start},{end},Caption,,0,0,0,,"
-                f"{{\\fscx60\\fscy60\\t(0,90,\\fscx100\\fscy100)}}{text}\n"
-            )
-            f.write(line)
+        if style == "karaoke":
+            for event in karaoke_events(chunk_words(words)):
+                f.write(event + "\n")
+        else:
+            for w in words:
+                start = format_time(w["start"])
+                end = format_time(w["end"])
+                text = w["word"].upper()
+                line = (
+                    f"Dialogue: 0,{start},{end},Caption,,0,0,0,,"
+                    f"{{\\fscx60\\fscy60\\t(0,90,\\fscx100\\fscy100)}}{text}\n"
+                )
+                f.write(line)
 
-    print(f"Styled captions ({color}) saved to: {ass_path}")
+    print(f"Styled captions ({color}/{style}) saved to: {ass_path}")
     return ass_path
 
 
@@ -128,33 +168,24 @@ def handle_caption_color_command(user_input):
     return f"I didn't catch a color in that. Try one of: {available}."
 
 
-def trim_dead_space(voiceover_path, output_filename=None, max_gap=0.4, padding=0.05):
+def trim_dead_space(voiceover_path, output_filename=None, max_gap=0.4, padding=0.05, words=None):
     """
     Removes excess silence between spoken words in the voiceover.
+    Pass words= to reuse an existing transcription instead of re-running Whisper.
     """
-    from pydub import AudioSegment
     AudioSegment.converter = imageio_ffmpeg.get_ffmpeg_exe()
 
-    words = transcribe_words(voiceover_path)
+    if words is None:
+        words = transcribe_words(voiceover_path)
     if not words:
         print("No words detected — skipping trim.")
         return voiceover_path
 
     audio = AudioSegment.from_file(voiceover_path)
-    total_ms = len(audio)
-
-    keep_segments = []
-    cursor = 0.0
-    for i in range(len(words) - 1):
-        gap_start = words[i]["end"]
-        gap_end = words[i + 1]["start"]
-        gap = gap_end - gap_start
-        if gap > max_gap:
-            keep_segments.append((cursor, gap_start + padding))
-            cursor = gap_end - padding
-    keep_segments.append((cursor, total_ms / 1000))
+    keep_segments = compute_keep_segments(words, len(audio), max_gap, padding)
 
     trimmed = AudioSegment.empty()
+    total_ms = len(audio)
     for start, end in keep_segments:
         start_ms = max(0, int(start * 1000))
         end_ms = min(total_ms, int(end * 1000))
@@ -174,12 +205,82 @@ def trim_dead_space(voiceover_path, output_filename=None, max_gap=0.4, padding=0
     return output_path
 
 
+def transcribe_and_trim(voiceover_path, output_filename=None, max_gap=0.4, padding=0.05):
+    """Transcribe ONCE, trim the audio, and remap word timings to fit.
+
+    Returns (trimmed_audio_path, words) where words are timed against the
+    TRIMMED audio — ready for captions and SFX with no second Whisper pass.
+    """
+    AudioSegment.converter = imageio_ffmpeg.get_ffmpeg_exe()
+
+    words = transcribe_words(voiceover_path)
+    if not words:
+        print("No words detected — skipping trim.")
+        return voiceover_path, []
+
+    audio = AudioSegment.from_file(voiceover_path)
+    total_ms = len(audio)
+    keep_segments = compute_keep_segments(words, total_ms, max_gap, padding)
+
+    trimmed = AudioSegment.empty()
+    for start, end in keep_segments:
+        start_ms = max(0, int(start * 1000))
+        end_ms = min(total_ms, int(end * 1000))
+        if end_ms > start_ms:
+            trimmed += audio[start_ms:end_ms]
+
+    if output_filename is None:
+        base, ext = os.path.splitext(os.path.basename(voiceover_path))
+        output_filename = f"{base}_trimmed.mp3"
+
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    output_path = os.path.join(OUTPUT_DIR, output_filename)
+    trimmed.export(output_path, format="mp3")
+
+    removed = (total_ms / 1000) - (len(trimmed) / 1000)
+    print(f"Trimmed {removed:.2f}s of dead space. Saved to: {output_path}")
+    return output_path, remap_words(words, keep_segments)
+
+
+def _assemble_video(voiceover_path, footage_path, width, height, output_filename):
+    """Core assembly: loop/trim footage to voiceover length, fill the frame,
+    attach audio, encode. Clips always closed (Windows file locks)."""
+    voiceover = AudioFileClip(voiceover_path)
+    source = VideoFileClip(footage_path)
+    try:
+        voice_duration = voiceover.duration
+        print(f"Voiceover duration: {voice_duration:.2f}s")
+
+        if source.duration < voice_duration:
+            loops_needed = int(voice_duration // source.duration) + 1
+            assembled = concatenate_videoclips([source] * loops_needed)
+        else:
+            assembled = source
+        try:
+            final = resize_to_fill(assembled.subclipped(0, voice_duration), width, height)
+            final = final.with_audio(voiceover)
+
+            os.makedirs(OUTPUT_DIR, exist_ok=True)
+            output_path = os.path.join(OUTPUT_DIR, output_filename)
+
+            final.write_videofile(output_path, fps=30, codec="libx264",
+                                  audio_codec="aac", preset=RENDER_PRESET)
+        finally:
+            if assembled is not source:
+                assembled.close()
+    finally:
+        source.close()
+        voiceover.close()
+
+    print(f"Video saved to: {output_path}")
+    return output_path
+
+
 def create_short(voiceover_path, output_filename="output_short.mp4", footage_path=None):
     """
-    Stage A: assembles a vertical short by trimming/looping footage to match
-    the voiceover length, cropping it to 1080x1920, and attaching the audio.
-    footage_path lets a caller (like roblox_creator.py) specify exactly which
-    clip to use; if not given, falls back to find_footage_clip() as before.
+    Assembles a vertical 1080x1920 short by trimming/looping footage to match
+    the voiceover length. footage_path lets a caller specify exactly which
+    clip to use; if not given, falls back to find_footage_clip().
     """
     if footage_path is None:
         footage_path = find_footage_clip()
@@ -188,28 +289,24 @@ def create_short(voiceover_path, output_filename="output_short.mp4", footage_pat
         return None
 
     print(f"Using footage: {footage_path}")
+    return _assemble_video(voiceover_path, footage_path,
+                           TARGET_WIDTH, TARGET_HEIGHT, output_filename)
 
-    voiceover = AudioFileClip(voiceover_path)
-    voice_duration = voiceover.duration
-    print(f"Voiceover duration: {voice_duration:.2f}s")
 
-    footage = VideoFileClip(footage_path)
+def create_longform(voiceover_path, output_filename="output_longform.mp4", footage_path=None):
+    """
+    Assembles a landscape 1920x1080 long-form video. Same contract as
+    create_short (caller may pass footage_path; falls back to find_footage_clip).
+    """
+    if footage_path is None:
+        footage_path = find_footage_clip()
+    if not footage_path:
+        print("No footage found in workspace/footage. Add a video clip first.")
+        return None
 
-    if footage.duration < voice_duration:
-        loops_needed = int(voice_duration // footage.duration) + 1
-        footage = concatenate_videoclips([footage] * loops_needed)
-
-    footage = footage.subclipped(0, voice_duration)
-    footage = resize_to_vertical(footage)
-    footage = footage.with_audio(voiceover)
-
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    output_path = os.path.join(OUTPUT_DIR, output_filename)
-
-    footage.write_videofile(output_path, fps=30, codec="libx264", audio_codec="aac")
-
-    print(f"Video saved to: {output_path}")
-    return output_path
+    print(f"Using footage: {footage_path}")
+    return _assemble_video(voiceover_path, footage_path,
+                           LANDSCAPE_WIDTH, LANDSCAPE_HEIGHT, output_filename)
 
 
 def burn_captions(video_path, ass_path, output_filename="output_with_captions.mp4"):
@@ -238,6 +335,49 @@ def burn_captions(video_path, ass_path, output_filename="output_with_captions.mp
     return output_path
 
 
+def add_sfx_track(video_path, words, sfx_dir=None, output_filename="output_with_sfx.mp4",
+                  volume=0.4, max_events=6):
+    """Auto-place meme SFX (vine boom, bruh...) on punchy words.
+
+    Returns (path, event_count). If no moments match or no SFX files exist,
+    the original video is returned untouched with count 0 — never a failure.
+    """
+    if sfx_dir is None:
+        sfx_dir = os.path.join(WORKSPACE_DIR, "sfx")
+    moments = pick_sfx_moments(words or [], sfx_dir, max_events=max_events)
+    if not moments:
+        return video_path, 0
+
+    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    output_path = os.path.join(OUTPUT_DIR, output_filename)
+
+    cmd = [ffmpeg_exe, "-y", "-i", video_path]
+    for _, sfx_path in moments:
+        cmd += ["-i", sfx_path]
+
+    parts = []
+    mix_inputs = ["[0:a]"]
+    for i, (sec, _sfx_path) in enumerate(moments, start=1):
+        ms = int(sec * 1000)
+        parts.append(f"[{i}:a]adelay={ms}|{ms},volume={volume}[s{i}]")
+        mix_inputs.append(f"[s{i}]")
+    parts.append(f"{''.join(mix_inputs)}amix=inputs={len(mix_inputs)}"
+                 f":duration=first:dropout_transition=0:normalize=0[aout]")
+    cmd += ["-filter_complex", ";".join(parts),
+            "-map", "0:v", "-map", "[aout]", "-c:v", "copy", output_path]
+
+    print(f"Mixing {len(moments)} sound effects into video...")
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print("ffmpeg sfx error:", result.stderr[-800:])
+        print("[JARVIS] SFX mix failed — keeping the video without sound effects.")
+        return video_path, 0
+
+    print(f"Video with SFX saved to: {output_path}")
+    return output_path, len(moments)
+
+
 def _get_mean_volume_db(path, ffmpeg_exe):
     """Runs ffmpeg's volumedetect filter and returns the mean loudness in dB, or None if it can't be read."""
     cmd = [ffmpeg_exe, "-i", path, "-af", "volumedetect", "-f", "null", "-"]
@@ -257,6 +397,9 @@ def add_background_music(video_path, music_path=None, output_filename="output_wi
     """
     Mixes a background music track underneath the video's existing voiceover
     audio, auto-leveling the music volume against the actual measured loudness.
+
+    Background music is optional: if no track is found, the original video is
+    returned unchanged (with a warning) instead of failing the whole pipeline.
     """
     ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
 
@@ -264,8 +407,9 @@ def add_background_music(video_path, music_path=None, output_filename="output_wi
         music_path = os.path.join(WORKSPACE_DIR, "music", "background_music.mp3")
 
     if not os.path.exists(music_path):
-        print(f"No background music found at {music_path}")
-        return None
+        print(f"[JARVIS] No background music found at {music_path} — "
+              f"keeping voiceover-only audio.")
+        return video_path
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     output_path = os.path.join(OUTPUT_DIR, output_filename)
@@ -308,7 +452,8 @@ def add_background_music(video_path, music_path=None, output_filename="output_wi
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         print("ffmpeg error:", result.stderr[-1500:])
-        return None
+        print("[JARVIS] Music mix failed — keeping the video without background music.")
+        return video_path
 
     print(f"Video with music saved to: {output_path}")
     return output_path

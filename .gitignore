@@ -1,11 +1,63 @@
-venv/
-.env
+# ---- Python ----
 __pycache__/
-*.pyc
-voice/temp.wav
-memory/history.json
-JarvisMemory/
-workspace/output/
-workspace/audio/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# ---- Secrets & local config ----
+.env
+*.key
+*.pem
 client_secrets.json
 youtube_token.json
+
+# ---- JARVIS runtime state ----
+memory/history.json
+memory/tasks.json
+JarvisMemory/
+voice/temp.wav
+voice/reply_*.mp3
+voice/__pycache__/
+
+# ---- Generated media (kept locally, not in git) ----
+# NOTE: the four example scripts under workspace/scripts/ are intentionally
+# tracked as examples. Newly generated script_*.txt / ideas_*.txt / voiceover_*
+# files are ignored by the rules below.
+workspace/output/*
+workspace/audio/*
+!workspace/output/.gitkeep
+!workspace/audio/.gitkeep
+workspace/scripts/script_*.txt
+workspace/scripts/ideas_*.txt
+workspace/scripts/plan_*.md
+workspace/scripts/seo_*.md
+workspace/output/latest.txt
+workspace/projects/*.json
+!workspace/projects/.gitkeep
+
+# ---- User-supplied media (too large / personal for git) ----
+# Ignore everything in these folders except the .gitkeep placeholders.
+# (One rule per folder: gitignore does NOT support {mp4,mov,...} braces.)
+workspace/footage/*
+workspace/music/*
+workspace/sfx/*
+!workspace/footage/.gitkeep
+!workspace/music/.gitkeep
+!workspace/sfx/.gitkeep
+!workspace/scripts/.gitkeep
+
+# ---- Obsidian vault (if opened as a vault) ----
+.obsidian/
+
+# ---- OS / editors ----
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
