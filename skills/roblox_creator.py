@@ -6,21 +6,24 @@ Voice commands (examples):
     "make a Roblox rant about campers, use parkour.mp4"
 
 Saying "use <filename>" picks a specific clip from workspace/footage instead
-of a random one.
+of a random one. The voiceover is transcribed once and the timings are reused
+for trimming, captions, and SFX placement.
 """
 
 import os
 import random
 import asyncio
 from datetime import datetime
+from core import qc
 from core.skill_manager import register_skill
 from voice.speak import _generate_speech_file
 from skills.video_editor import (
-    trim_dead_space,
+    add_background_music,
+    add_sfx_track,
+    burn_captions,
     create_short,
     generate_captions,
-    burn_captions,
-    add_background_music,
+    transcribe_and_trim,
     OUTPUT_DIR,
     VIDEO_EXTENSIONS,
 )
@@ -37,6 +40,7 @@ FOOTAGE_DIR = "workspace/footage"
 LATEST_FILE = os.path.join(OUTPUT_DIR, "latest.txt")
 
 MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+CAPTION_STYLE = os.getenv("JARVIS_CAPTION_STYLE", "pop")
 
 
 def _progress(step, detail=""):
@@ -159,12 +163,12 @@ def handle_roblox_creator(user_input, gemini_client=None):
             f"Here's the script: {script_text}"
         )
 
-    # Assemble the final video: trim dead space out of the voiceover, combine
-    # it with the gameplay footage, burn on styled captions, then mix in
+    # Assemble the final video: transcribe once, trim dead space, combine with
+    # gameplay footage, burn styled captions, place meme SFX, then mix in
     # background music underneath (skipped gracefully if none is found).
     try:
-        _progress("Trimming dead space...")
-        trimmed_audio_path = trim_dead_space(audio_path)
+        _progress("Transcribing + trimming dead space...")
+        trimmed_audio_path, words = transcribe_and_trim(audio_path)
 
         _progress("Assembling video...", os.path.basename(clip_path))
         video_path = create_short(
@@ -179,6 +183,8 @@ def handle_roblox_creator(user_input, gemini_client=None):
         ass_path = generate_captions(
             trimmed_audio_path,
             ass_path=os.path.join(OUTPUT_DIR, f"captions_{timestamp}.ass"),
+            words=words,
+            style=CAPTION_STYLE,
         )
 
         _progress("Burning captions...")
@@ -188,9 +194,16 @@ def handle_roblox_creator(user_input, gemini_client=None):
             output_filename=f"output_captioned_{timestamp}.mp4",
         )
 
+        _progress("Placing sound effects...")
+        sfx_path, sfx_count = add_sfx_track(
+            captioned_path,
+            words,
+            output_filename=f"output_sfx_{timestamp}.mp4",
+        )
+
         _progress("Mixing background music...")
         final_path = add_background_music(
-            captioned_path,
+            sfx_path,
             output_filename=f"output_final_{timestamp}.mp4",
         )
         if not final_path:
@@ -208,12 +221,22 @@ def handle_roblox_creator(user_input, gemini_client=None):
         f.write(final_path)
 
     music_note = ""
-    if final_path == captioned_path:
+    if final_path == sfx_path:
         music_note = "No background music was found, so this one is voiceover-only. "
+
+    sfx_note = f"Plus {sfx_count} sound effects. " if sfx_count else ""
+
+    qc_note = ""
+    try:
+        qc_result = qc.check_video(final_path, 1080, 1920, ass_path=ass_path)
+        if not qc_result.get("passed"):
+            qc_note = f"QC flagged: {', '.join(qc.failed_names(qc_result))}. "
+    except Exception as e:
+        print(f"[roblox_creator] QC skipped ({e})")
 
     return (
         f"Your Roblox rant short is ready, Sir Gerald — saved to {final_path}. "
-        f"{music_note}Here's the script: {script_text}"
+        f"{music_note}{sfx_note}{qc_note}Here's the script: {script_text}"
     )
 
 

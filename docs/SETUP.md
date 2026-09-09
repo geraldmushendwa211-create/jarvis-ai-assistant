@@ -114,6 +114,26 @@ listening. Try:
 
 Say *"quit"* to exit.
 
+## Render speed (older / CPU-only PCs)
+
+JARVIS is tuned to run without a GPU. Two knobs matter most:
+
+| Setting | Default | What it does |
+|---|---|---|
+| `JARVIS_RENDER_PRESET` | `veryfast` | x264 speed. `veryfast` ≈ 2–3× quicker than `medium` with negligible quality loss on Shorts. Set `medium`/`slow` in `.env` only if you want max quality and have time. |
+| `JARVIS_CAPTION_STYLE` | `pop` | `pop` = one-word-at-a-time captions; `karaoke` = full lines with the spoken word highlighted. |
+
+What to expect on a 4-core i7 + 16 GB RAM (CPU-only):
+
+- **60s Short:** a few minutes end-to-end (voiceover download + ~1–2 min
+  Whisper transcription + ~1–3 min encoding on first runs).
+- **10-min long-form:** 15–30+ minutes. Start it and grab a coffee. ☕
+- **First run:** Whisper downloads ~150 MB once to `~/.cache/huggingface`.
+- Keep a few GB free for `workspace/` renders and the model cache.
+
+Speed tips: close heavy apps while rendering, and prefer shorter voiceovers
+while experimenting (the pipeline scales with audio length).
+
 ## 7. Run the tests
 
 ```bash

@@ -1,26 +1,28 @@
 """Universal video skill: "make a [niche] short/video about X".
 
 Detects the niche from the command (see core/niches.py), generates a
-niche-styled script, and runs the standard Short pipeline. Every run is
-tracked as a structured VideoProject ticket (see core/project.py).
+niche-styled script, and runs the full pipeline: voiceover -> transcribe-once
+-> trim -> assemble (9:16 short or 16:9 long-form) -> captions -> SFX ->
+music -> QC -> thumbnail -> SEO pack. Every run is tracked as a structured
+VideoProject ticket (see core/project.py).
 
 Examples:
     "make a Minecraft short about diamonds"
     "create a gym motivation video"
+    "make a 10-minute documentary about black holes"
     "make a horror short about abandoned places, use creepy.mp4"
 
 Notes:
 - "Rant" commands still route to the roblox_creator specialist.
-- Long-form (10-minute / documentary) currently produces the script +
-  voiceover and stops with a clear message — 16:9 assembly is next.
 - Scripts for factual niches (education, tech) get an automatic
   heuristic fact-check pass; warnings ride along on the ticket.
+- Caption style: JARVIS_CAPTION_STYLE=pop|karaoke (default pop).
 """
 
 import asyncio
 import os
 
-from core import factcheck
+from core import factcheck, qc, seo
 from core.niches import detect_niche
 from core.project import VideoProject
 from core.skill_manager import register_skill
@@ -29,10 +31,12 @@ from skills.video_editor import (
     OUTPUT_DIR,
     VIDEO_EXTENSIONS,
     add_background_music,
+    add_sfx_track,
     burn_captions,
+    create_longform,
     create_short,
     generate_captions,
-    trim_dead_space,
+    transcribe_and_trim,
 )
 
 try:
@@ -52,6 +56,7 @@ LONG_WORDS = ("long video", "long-form", "longform", "10 minute", "10-minute",
 FACT_NICHES = ("education", "tech")
 
 MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+CAPTION_STYLE = os.getenv("JARVIS_CAPTION_STYLE", "pop")
 
 
 def _progress(step, detail=""):
@@ -168,8 +173,7 @@ def handle_video_creator(user_input, gemini_client=None):
     project.script_path = script_path
     project.mark("scripted", f"{len(script_text.split())} words")
 
-    # Phase-2 wiring: factual niches get a heuristic claim scan. Warnings
-    # ride along on the ticket and in the spoken reply.
+    # Factual niches get a heuristic claim scan; warnings ride the ticket.
     script_flags = []
     if niche.key in FACT_NICHES:
         script_flags = factcheck.check_text(script_text)
@@ -190,21 +194,6 @@ def handle_video_creator(user_input, gemini_client=None):
     project.audio_path = audio_path
     project.mark("voiced", os.path.basename(audio_path))
 
-    flag_note = ""
-    if script_flags:
-        flag_note = (f"Heads-up: {len(script_flags)} line(s) make strong claims — "
-                     f"I've flagged them in the project ticket for your review. ")
-
-    if video_format == "long":
-        # 16:9 long-form assembly lands in the next slice — but the script and
-        # voiceover are real, saved, and tracked on the project ticket.
-        return (
-            f"The {niche.label} script and voiceover are ready, Sir Gerald — "
-            f"script at {script_path}, audio at {audio_path}. {flag_note}"
-            f"Long-form video assembly (16:9) is still being built; ask me for "
-            f"a Short and I'll render the full video today."
-        )
-
     requested_clip = extract_footage_request(user_input)
     clip_path, clip_error = find_niche_footage(niche, preferred=requested_clip)
     if clip_error:
@@ -213,24 +202,28 @@ def handle_video_creator(user_input, gemini_client=None):
                 f"Here's the script: {script_text}")
     project.footage_path = clip_path
 
+    assemble = create_longform if video_format == "long" else create_short
+    expect_dims = (1920, 1080) if video_format == "long" else (1080, 1920)
     try:
-        _progress("Trimming dead space...")
-        trimmed_audio_path = trim_dead_space(audio_path)
+        _progress("Transcribing + trimming dead space...")
+        trimmed_audio_path, words = transcribe_and_trim(audio_path)
 
         _progress("Assembling video...", os.path.basename(clip_path))
-        video_path = create_short(
+        video_path = assemble(
             trimmed_audio_path,
             output_filename=f"output_{project.id}.mp4",
             footage_path=clip_path,
         )
         if not video_path:
-            raise RuntimeError("create_short() did not produce a video.")
+            raise RuntimeError("assembly did not produce a video.")
         project.mark("edited", os.path.basename(video_path))
 
         _progress("Generating captions...")
         ass_path = generate_captions(
             trimmed_audio_path,
             ass_path=os.path.join(OUTPUT_DIR, f"captions_{project.id}.ass"),
+            words=words,
+            style=CAPTION_STYLE,
         )
         project.ass_path = ass_path
 
@@ -242,9 +235,16 @@ def handle_video_creator(user_input, gemini_client=None):
         )
         project.mark("captioned", os.path.basename(captioned_path))
 
+        _progress("Placing sound effects...")
+        sfx_path, sfx_count = add_sfx_track(
+            captioned_path,
+            words,
+            output_filename=f"output_sfx_{project.id}.mp4",
+        )
+
         _progress("Mixing background music...")
         final_path = add_background_music(
-            captioned_path,
+            sfx_path,
             output_filename=f"output_final_{project.id}.mp4",
         )
         if not final_path:
@@ -263,13 +263,63 @@ def handle_video_creator(user_input, gemini_client=None):
     with open(LATEST_FILE, "w", encoding="utf-8") as f:
         f.write(final_path)
 
+    # Post-production: QC gate, thumbnail, SEO pack. None of these can kill
+    # an already-finished render — failures degrade to warnings.
+    _progress("Running quality control...")
+    try:
+        qc_result = qc.check_video(final_path, *expect_dims, ass_path=ass_path)
+    except Exception as e:
+        qc_result = {"passed": False, "checks": [
+            {"name": "qc crashed", "ok": False, "detail": str(e)}]}
+    project.qc = qc_result
+    project.save()
+
+    thumb_path = ""
+    try:
+        from core.thumbnail import make_thumbnail  # lazy: needs pillow
+        _progress("Building thumbnail...")
+        thumb_path = make_thumbnail(
+            final_path, topic,
+            os.path.join(OUTPUT_DIR, f"thumb_{project.id}.jpg"))
+        project.thumbnail_path = thumb_path
+    except Exception as e:
+        print(f"[video_creator] Thumbnail skipped ({e})")
+
+    seo_path = ""
+    try:
+        _progress("Writing SEO pack...")
+        seo_data = seo.generate_seo(topic, niche.label, gemini_client)
+        seo_path = seo.write_seo_file(project.id, topic, seo_data)
+        seo_data["file"] = seo_path
+        project.seo = seo_data
+    except Exception as e:
+        print(f"[video_creator] SEO pack skipped ({e})")
+    project.save()
+
+    kind = "video" if video_format == "long" else "short"
     music_note = ""
-    if final_path == captioned_path:
+    if final_path == sfx_path:
         music_note = "No background music was found, so this one is voiceover-only. "
+    flag_note = ""
+    if script_flags:
+        flag_note = (f"Heads-up: {len(script_flags)} line(s) make strong claims — "
+                     f"I've flagged them in the project ticket. ")
+    extras = []
+    if sfx_count:
+        extras.append(f"{sfx_count} sound effects")
+    if thumb_path:
+        extras.append("thumbnail")
+    if seo_path:
+        extras.append("SEO pack")
+    extra_note = f"Plus: {', '.join(extras)}. " if extras else ""
+    qc_note = ""
+    if not qc_result.get("passed"):
+        qc_note = f"QC flagged: {', '.join(qc.failed_names(qc_result))}. "
 
     return (
-        f"Your {niche.label} short is ready, Sir Gerald — saved to {final_path}. "
-        f"{music_note}{flag_note}Here's the script: {script_text}"
+        f"Your {niche.label} {kind} is ready, Sir Gerald — saved to {final_path}. "
+        f"{music_note}{flag_note}{extra_note}{qc_note}"
+        f"Here's the script: {script_text}"
     )
 
 

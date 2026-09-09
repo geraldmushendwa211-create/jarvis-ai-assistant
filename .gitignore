@@ -33,6 +33,7 @@ workspace/audio/*
 workspace/scripts/script_*.txt
 workspace/scripts/ideas_*.txt
 workspace/scripts/plan_*.md
+workspace/scripts/seo_*.md
 workspace/output/latest.txt
 workspace/projects/*.json
 !workspace/projects/.gitkeep

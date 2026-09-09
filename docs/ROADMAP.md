@@ -61,14 +61,18 @@ instead of spending money.
 - `core/factcheck.py`: superlative/absolute/number scanner; auto-runs on
   education + tech scripts inside `video_creator`
 
-## Phase 3 — Editing & QC
+## Phase 3 — Editing & QC ✅ DONE
 
-- 16:9 long-form assembly (landscape pipeline next to `create_short`)
-- SFX punchlines from `workspace/sfx/` on emotional beats
-- Karaoke word-highlight captions; thumbnail generator (PIL)
-- SEO/metadata pack: title, description, hashtags, chapters
-- QC agent: resolution, duration, audio levels, missing assets → fix loop
-- Whisper once per video (transcribe once, reuse timings everywhere)
+- Whisper once per video: `transcribe_and_trim()` + cached model + timestamp
+  remapping (`core/captions.py`) — roughly halves AI wait on CPU-only PCs
+- 16:9 long-form assembly (`create_longform`) next to `create_short`
+- `JARVIS_RENDER_PRESET` (default `veryfast`): 2–3× faster encodes on older CPUs
+- Auto SFX (`core/sfx.py` + `add_sfx_track`): punch words trigger meme sounds
+- Karaoke captions (`JARVIS_CAPTION_STYLE=karaoke`): active-word highlighting
+- `core/thumbnail.py`: 1280×720 frame + bold title card (Arial Black on Windows)
+- `core/seo.py`: title + Gemini description + hashtags, saved per video
+- `core/qc.py`: resolution/duration/audio/captions gate on every render,
+  results stored on the project ticket
 
 ## Phase 4 — Publish & approval
 

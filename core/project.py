@@ -51,6 +51,10 @@ class VideoProject:
     titles: list = field(default_factory=list)
     fact_check: dict = field(default_factory=dict)
     plan_path: str = ""
+    # Phase-3 post-production fields (QC report, thumbnail, SEO pack)
+    qc: dict = field(default_factory=dict)
+    thumbnail_path: str = ""
+    seo: dict = field(default_factory=dict)
 
     @classmethod
     def new(cls, topic, niche="generic", format="short"):
