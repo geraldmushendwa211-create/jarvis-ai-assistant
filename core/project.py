@@ -43,6 +43,14 @@ class VideoProject:
     error: str = ""
     created_at: str = ""
     stages: list = field(default_factory=list)
+    # Phase-2 strategy fields (research brief, ranked ideas, scored titles,
+    # fact-check report, readable plan file). Old tickets without them load
+    # fine — load() fills in these defaults.
+    research: dict = field(default_factory=dict)
+    ideas: list = field(default_factory=list)
+    titles: list = field(default_factory=list)
+    fact_check: dict = field(default_factory=dict)
+    plan_path: str = ""
 
     @classmethod
     def new(cls, topic, niche="generic", format="short"):

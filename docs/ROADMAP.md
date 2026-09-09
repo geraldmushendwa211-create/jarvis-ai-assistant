@@ -50,13 +50,16 @@ instead of spending money.
 - `skills/video_creator.py`: *"make a [niche] short/video about X"* for any niche
 - Long-form produces script + voiceover now; 16:9 assembly is Phase 3
 
-## Phase 2 — Strategy & script depth (next)
+## Phase 2 — Strategy & script depth ✅ DONE
 
-- Trend discovery: free sources (YouTube RSS/search, Reddit) → ranked topics
-- Research agent: gather facts + sources into the project ticket
-- Idea agent upgrade: difficulty + "why it may work" per idea (ticket fields)
-- Hook/title agent: N titles + hook score, rewrite loop before scripting
-- Fact-check pass for education/news niches (flag unsupported claims)
+- `core/trends.py`: keyless trend discovery (per-niche Reddit subs + HN for tech)
+- `core/research.py`: Wikipedia + DuckDuckGo fact briefs, saved into the ticket
+- `skills/strategy.py`: *"what's trending"*, *"research X"*,
+  *"plan a video about X"* → research + ideas (difficulty + why) + scored
+  titles + plan file + ticket
+- `core/hooks.py`: deterministic title scorer (0–100) with regenerate-if-weak loop
+- `core/factcheck.py`: superlative/absolute/number scanner; auto-runs on
+  education + tech scripts inside `video_creator`
 
 ## Phase 3 — Editing & QC
 

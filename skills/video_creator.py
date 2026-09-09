@@ -13,11 +13,14 @@ Notes:
 - "Rant" commands still route to the roblox_creator specialist.
 - Long-form (10-minute / documentary) currently produces the script +
   voiceover and stops with a clear message — 16:9 assembly is next.
+- Scripts for factual niches (education, tech) get an automatic
+  heuristic fact-check pass; warnings ride along on the ticket.
 """
 
 import asyncio
 import os
 
+from core import factcheck
 from core.niches import detect_niche
 from core.project import VideoProject
 from core.skill_manager import register_skill
@@ -44,6 +47,9 @@ FOOTAGE_DIR = "workspace/footage"
 LATEST_FILE = os.path.join(OUTPUT_DIR, "latest.txt")
 LONG_WORDS = ("long video", "long-form", "longform", "10 minute", "10-minute",
               "documentary", "full video")
+
+# Niches whose scripts get an automatic fact-check pass.
+FACT_NICHES = ("education", "tech")
 
 MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 
@@ -162,6 +168,16 @@ def handle_video_creator(user_input, gemini_client=None):
     project.script_path = script_path
     project.mark("scripted", f"{len(script_text.split())} words")
 
+    # Phase-2 wiring: factual niches get a heuristic claim scan. Warnings
+    # ride along on the ticket and in the spoken reply.
+    script_flags = []
+    if niche.key in FACT_NICHES:
+        script_flags = factcheck.check_text(script_text)
+        if script_flags:
+            project.fact_check = {"flags": script_flags,
+                                  "note": factcheck.summarize(script_flags)}
+            project.save()
+
     _progress("Recording voiceover...")
     os.makedirs(AUDIO_DIR, exist_ok=True)
     audio_path = os.path.join(AUDIO_DIR, f"voiceover_{project.id}.mp3")
@@ -174,14 +190,19 @@ def handle_video_creator(user_input, gemini_client=None):
     project.audio_path = audio_path
     project.mark("voiced", os.path.basename(audio_path))
 
+    flag_note = ""
+    if script_flags:
+        flag_note = (f"Heads-up: {len(script_flags)} line(s) make strong claims — "
+                     f"I've flagged them in the project ticket for your review. ")
+
     if video_format == "long":
         # 16:9 long-form assembly lands in the next slice — but the script and
         # voiceover are real, saved, and tracked on the project ticket.
         return (
             f"The {niche.label} script and voiceover are ready, Sir Gerald — "
-            f"script at {script_path}, audio at {audio_path}. Long-form video "
-            f"assembly (16:9) is still being built; ask me for a Short and "
-            f"I'll render the full video today."
+            f"script at {script_path}, audio at {audio_path}. {flag_note}"
+            f"Long-form video assembly (16:9) is still being built; ask me for "
+            f"a Short and I'll render the full video today."
         )
 
     requested_clip = extract_footage_request(user_input)
@@ -248,7 +269,7 @@ def handle_video_creator(user_input, gemini_client=None):
 
     return (
         f"Your {niche.label} short is ready, Sir Gerald — saved to {final_path}. "
-        f"{music_note}Here's the script: {script_text}"
+        f"{music_note}{flag_note}Here's the script: {script_text}"
     )
 
 

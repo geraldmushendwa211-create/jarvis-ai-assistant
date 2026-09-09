@@ -10,7 +10,7 @@ example scripts are tracked.
 | `music/` | Background music. `background_music.mp3` is used by default and auto-leveled under the voiceover. Music is optional — the pipeline still succeeds without it. |
 | `sfx/` | Sound effects for future skills (memes, transitions). Not wired into the pipeline yet. |
 | `audio/` | Generated voiceovers (`voiceover_*.mp3`) and trimmed versions. Safe to delete. |
-| `scripts/` | Generated rant scripts (`script_*.txt`) and video ideas (`ideas_*.txt`). A few examples are tracked in git. |
+| `scripts/` | Generated scripts (`script_*.txt`), idea lists (`ideas_*.txt`), and video plans (`plan_*.md` with research, ideas, scored titles). A few example scripts are tracked in git. |
 | `output/` | Finished videos (`output_final_*.mp4`), captions (`.ass`), and `latest.txt` pointing at the newest render. Safe to delete. |
 | `projects/` | One JSON job ticket per video attempt (topic, niche, stage history, paths). The seed of the content library. Safe to delete. |
 

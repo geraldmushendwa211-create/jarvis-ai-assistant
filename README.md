@@ -59,6 +59,7 @@ python brain/main.py
 | *"make a Roblox rant about pay-to-win"* | Full Short pipeline → `workspace/output/output_final_*.mp4` |
 | *"make a rant about campers, use parkour.mp4"* | Same, but with a specific footage clip |
 | *"make a Minecraft short about diamonds"* | Universal skill: any niche (minecraft, gym, horror, tech…), tracked as a project ticket |
+| *"what's trending in tech"* / *"research black holes"* / *"plan a video about…"* | Strategy skill: live trends, fact briefs, full video plans → `workspace/scripts/plan_*.md` |
 | *"give me 5 video ideas about pets"* | Brainstorms hooks → `workspace/scripts/ideas_*.txt` |
 | *"make captions red"* | Caption color for future renders (gold/white/red/cyan/green/pink/purple) |
 | *"what have you made?"* | Report of finished videos, scripts, ideas |
@@ -76,6 +77,7 @@ Handlers may take `(user_input)` or `(user_input, gemini_client=None)`.
 | Skill | Module | Triggers | Permission |
 |---|---|---|---|
 | `video_creator` | `skills/video_creator.py` | make/create a video/short… (any niche) | safe |
+| `strategy` | `skills/strategy.py` | trending, research…, plan a video… | safe |
 | `roblox_creator` | `skills/roblox_creator.py` | make/create a roblox rant… | safe |
 | `idea_generator` | `skills/idea_generator.py` | video ideas, brainstorm… | safe |
 | `caption_color` | `skills/video_editor.py` | caption color…, make captions… | safe |
