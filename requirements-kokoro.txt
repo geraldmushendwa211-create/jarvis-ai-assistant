@@ -1,0 +1,5 @@
+# Optional local Kokoro voice environment.
+# Install this with Python 3.11 or 3.12 in a separate virtual environment.
+-r requirements.txt
+kokoro>=0.9.4
+soundfile>=0.12.1

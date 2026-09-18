@@ -39,6 +39,11 @@ pip install -r requirements.txt
 cp .env.example .env        # then paste your GEMINI_API_KEY into .env
 ```
 
+JARVIS treats external content as untrusted and keeps risky actions behind
+explicit approval prompts. Keep `.env`, API keys, tokens, and client secrets
+private, and use an OS account lock and disk encryption as the outer security
+layer.
+
 Drop a gameplay recording into `workspace/footage/` (any `.mp4/.mov/.mkv/.avi`),
 optionally put `background_music.mp3` in `workspace/music/`, then:
 
@@ -47,6 +52,17 @@ python brain/main.py
 # No mic?  python brain/main.py --text --no-voice   (type + read, fully silent)
 # Flags:    python brain/main.py --help
 ```
+
+For a native Windows desktop build, use PowerShell from the repository root:
+
+```powershell
+.\build_windows.ps1
+```
+
+Launch `dist\Jarvis\Jarvis.exe`. The native Tkinter status window is enabled
+by default; the browser dashboard is disabled unless you start with `--web` or
+set `JARVIS_WEB_UI=1`. Copy `.env` beside the executable, and never place API
+keys, tokens, client secrets, or personal data into the packaged application.
 
 > 🧭 **New here?** Follow the step-by-step **[Setup Guide](docs/SETUP.md)** —
 > it covers Linux/macOS extras (tkinter, GStreamer), mic calibration, Obsidian,
@@ -65,6 +81,9 @@ python brain/main.py
 | *"give me 5 video ideas about pets"* | Brainstorms hooks → `workspace/scripts/ideas_*.txt` |
 | *"make captions red"* | Caption color for future renders (gold/white/red/cyan/green/pink/purple) |
 | *"what have you made?"* | Report of finished videos, scripts, ideas |
+| *"execute business idea for custom furniture"* | Create a universal business execution project; safe local tasks are queued, risky tasks wait for approval, and financial tasks are blocked |
+| *"show my business tasks"* / *"approve task 2"* | Review or update the latest business task queue; approval never performs an external action |
+| *"check system"* / *"run diagnostics"* | Read-only check of Python, API configuration, voice packages, microphone, dashboard, storage, and safety boundaries |
 | *"remind me to stretch in 30 minutes"* | Spoken reminder, background-checked every 15s |
 | *"remind me to call mum at 2026-09-10 18:00"* | One-off reminder at an exact time |
 | *"delete old_clip.mp4"* | Goes through the permission prompt (test mode) |
@@ -85,6 +104,9 @@ Handlers may take `(user_input)` or `(user_input, gemini_client=None)`.
 | `idea_generator` | `skills/idea_generator.py` | video ideas, brainstorm… | safe |
 | `caption_color` | `skills/video_editor.py` | caption color…, make captions… | safe |
 | `project_status` | `skills/project_status.py` | what have you made, my videos… | safe |
+| `business_execution` | `skills/business_assistant.py` | execute business idea, start business… | safe for planning; risky tasks require approval; financial tasks blocked |
+| `business_tasks` | `skills/business_assistant.py` | show business tasks, approve/reject/complete task… | safe state changes only |
+| `system_diagnostics` | `skills/system_diagnostics.py` | check system, run diagnostics… | safe, read-only |
 | `test_skill` | `skills/test_skill.py` | activate test skill | safe |
 
 ## 🗂️ Project structure

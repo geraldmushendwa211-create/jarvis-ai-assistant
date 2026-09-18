@@ -1,3 +1,6 @@
+import os
+
+from dotenv import load_dotenv
 import sounddevice as sd
 import numpy as np
 from scipy.io.wavfile import write
@@ -8,6 +11,33 @@ SILENCE_THRESHOLD = 90   # tuned based on mic calibration
 SILENCE_DURATION = 1.2    # seconds of quiet before it decides you're done
 CHUNK_DURATION = 0.1
 MAX_WAIT = 8               # give up if you never start speaking
+load_dotenv()
+MIC_DEVICE = os.getenv("JARVIS_MIC_DEVICE", "").strip()
+
+
+def selected_input_device():
+    """Prefer the physical microphone over a virtual Voice.ai input."""
+    if MIC_DEVICE:
+        try:
+            return int(MIC_DEVICE)
+        except ValueError:
+            return MIC_DEVICE
+
+    devices = sd.query_devices()
+    physical = [
+        (index, device) for index, device in enumerate(devices)
+        if device.get("max_input_channels", 0) > 0
+        and "voice.ai" not in device.get("name", "").lower()
+    ]
+    realtek = [
+        (index, device) for index, device in physical
+        if "realtek" in device.get("name", "").lower()
+    ]
+    if realtek:
+        return realtek[0][0]
+    if physical:
+        return physical[0][0]
+    return None
 
 def record_audio(filename="voice/temp.wav"):
     print("Listening... speak now.")
@@ -29,6 +59,7 @@ def record_audio(filename="voice/temp.wav"):
 
     with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype='int16',
                          blocksize=int(SAMPLE_RATE * CHUNK_DURATION),
+                         device=selected_input_device(),
                          callback=callback):
         while True:
             sd.sleep(int(CHUNK_DURATION * 1000))

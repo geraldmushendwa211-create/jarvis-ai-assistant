@@ -168,6 +168,9 @@ class TestVideoEditor(unittest.TestCase):
 
 @unittest.skipIf(speak_mod is None, "requires edge-tts/playsound3 (pip install -r requirements.txt)")
 class TestSpeakPlayback(unittest.TestCase):
+    def test_edge_rate_is_slightly_slower_by_default(self):
+        self.assertEqual(speak_mod._edge_rate(), "-2%")
+
     def test_failing_generator_raises_instead_of_hanging(self):
         def bad_stream():
             # Yields nothing, then the stream drops. If the worker lost its

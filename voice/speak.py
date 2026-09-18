@@ -5,10 +5,29 @@ import queue
 import os
 import time
 import re
+import threading
+from dotenv import load_dotenv
 from playsound3 import playsound
 
-VOICE = "en-GB-RyanNeural"  # British male voice, JARVIS-style
+load_dotenv()
+
+VOICE_OPTIONS = (
+    "en-GB-RyanNeural",     # British male
+    "en-GB-SoniaNeural",    # British female
+    "en-US-GuyNeural",      # American male
+    "en-US-AriaNeural",     # American female
+    "en-AU-WilliamNeural",  # Australian male
+)
+VOICE = os.getenv("JARVIS_TTS_VOICE", VOICE_OPTIONS[0])
 TEMP_DIR = "voice"
+TTS_ENGINE = os.getenv("JARVIS_TTS_ENGINE", "edge").lower()
+try:
+    TTS_SPEED = min(1.5, max(0.6, float(os.getenv("JARVIS_TTS_SPEED", "0.98"))))
+except ValueError:
+    TTS_SPEED = 0.98
+KOKORO_VOICE = os.getenv("KOKORO_VOICE", "bm_george")
+_kokoro_pipeline = None
+_kokoro_lock = threading.Lock()
 
 
 class SentenceSourceError(Exception):
@@ -23,8 +42,52 @@ def split_into_sentences(text):
 
 
 async def _generate_speech_file(text, filepath):
-    communicate = edge_tts.Communicate(text, VOICE)
+    communicate = edge_tts.Communicate(text, VOICE, rate=_edge_rate())
     await communicate.save(filepath)
+
+
+def _edge_rate():
+    """Convert the shared speed multiplier to Edge TTS's percentage format."""
+    return f"{round((TTS_SPEED - 1) * 100):+d}%"
+
+
+def _get_kokoro_pipeline():
+    global _kokoro_pipeline
+    if _kokoro_pipeline is None:
+        with _kokoro_lock:
+            if _kokoro_pipeline is None:
+                from kokoro import KPipeline
+                _kokoro_pipeline = KPipeline(lang_code="b")
+    return _kokoro_pipeline
+
+
+def _generate_kokoro_speech_file(text, filepath):
+    import numpy as np
+    import soundfile as sf
+
+    chunks = []
+    pipeline = _get_kokoro_pipeline()
+    for _graphemes, _phonemes, audio in pipeline(
+        text, voice=KOKORO_VOICE, speed=TTS_SPEED, split_pattern=r"\n+"
+    ):
+        chunks.append(np.asarray(audio))
+    if not chunks:
+        raise RuntimeError("Kokoro returned no audio")
+    sf.write(filepath, np.concatenate(chunks), 24000)
+
+
+def _generate_audio_file(text, filepath):
+    if TTS_ENGINE == "kokoro":
+        try:
+            _generate_kokoro_speech_file(text, filepath)
+            return filepath
+        except Exception as error:
+            print(f"[Kokoro unavailable, using Edge TTS]: {error}")
+            edge_filepath = os.path.splitext(filepath)[0] + ".mp3"
+            asyncio.run(_generate_speech_file(text, edge_filepath))
+            return edge_filepath
+    asyncio.run(_generate_speech_file(text, filepath))
+    return filepath
 
 
 def speak(text):
@@ -54,9 +117,10 @@ def _run_playback(sentence_iterable):
             for sentence in sentence_iterable:
                 if not sentence or not sentence.strip():
                     continue
-                filepath = os.path.join(TEMP_DIR, f"reply_{i}.mp3")
+                extension = ".wav" if TTS_ENGINE == "kokoro" else ".mp3"
+                filepath = os.path.join(TEMP_DIR, f"reply_{i}{extension}")
                 try:
-                    asyncio.run(_generate_speech_file(sentence, filepath))
+                    filepath = _generate_audio_file(sentence, filepath)
                     file_queue.put(filepath)
                 except Exception as e:
                     print(f"[Speech Generation Error]: {e}")
@@ -89,7 +153,6 @@ def _run_playback(sentence_iterable):
             t0 = time.time()
             playsound(filepath)
             print(f"Played {filepath} in {time.time() - t0:.2f}s")
-            os.remove(filepath)
         except Exception as e:
             print(f"[Playback Error]: {e}")
 

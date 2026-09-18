@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>J.A.R.V.I.S. / Cyber Interface</title>
+  <style>
+    :root { --cyan:#1de4f2; --blue:#147ea0; --ink:#d8fbff; --muted:#6996a7; --line:rgba(35,196,218,.24); --panel:rgba(3,24,39,.72); --bg:#020b16; --amber:#e7b85d; --red:#e87777; }
+    * { box-sizing:border-box; }
+    html,body { min-width:320px; min-height:100%; margin:0; }
+    body { color:var(--ink); background:var(--bg); font-family:Consolas,"Courier New",monospace; overflow-x:hidden; --accent:var(--cyan); --accent-soft:rgba(29,228,242,.16); }
+    body.mode-listening { --accent:#66e7a8; --accent-soft:rgba(102,231,168,.16); }
+    body.mode-thinking { --accent:#e7b85d; --accent-soft:rgba(231,184,93,.16); }
+    body.mode-executing { --accent:#57a7ff; --accent-soft:rgba(87,167,255,.16); }
+    body.mode-success { --accent:#8ce9d2; --accent-soft:rgba(140,233,210,.16); }
+    body.mode-error { --accent:#e87777; --accent-soft:rgba(232,119,119,.16); }
+    body:before { content:""; position:fixed; inset:0; pointer-events:none; opacity:.34; background-image:linear-gradient(rgba(26,167,196,.08) 1px,transparent 1px),linear-gradient(90deg,rgba(26,167,196,.08) 1px,transparent 1px); background-size:42px 42px; mask-image:linear-gradient(to bottom,black,transparent 86%); }
+    body:after { content:""; position:fixed; inset:0; pointer-events:none; background:linear-gradient(90deg,transparent 49.8%,rgba(29,228,242,.09) 50%,transparent 50.2%),linear-gradient(0deg,transparent 49.8%,rgba(29,228,242,.06) 50%,transparent 50.2%); opacity:.25; }
+    .app { min-height:100vh; padding:24px clamp(16px,3vw,48px) 28px; position:relative; }
+    .top { display:flex; justify-content:space-between; align-items:flex-start; gap:20px; border-bottom:1px solid var(--line); padding-bottom:17px; position:relative; z-index:2; }
+    .title { display:flex; gap:16px; align-items:center; }
+    .mark { width:48px; height:48px; border:1px solid var(--accent); border-radius:50%; display:grid; place-items:center; color:var(--accent); font-size:22px; box-shadow:0 0 22px var(--accent-soft),inset 0 0 18px var(--accent-soft); transition:all .35s ease; }
+    .overline { margin:0 0 4px; color:var(--cyan); font-size:11px; letter-spacing:3px; }
+    h1 { margin:0; font-size:clamp(20px,3vw,32px); font-weight:400; letter-spacing:6px; }
+    .sub { margin:5px 0 0; color:var(--muted); font-size:11px; letter-spacing:1px; }
+    .top-readout { text-align:right; color:var(--muted); font-size:11px; line-height:1.8; }
+    .top-readout b { color:var(--cyan); font-weight:400; }
+    .led { display:inline-block; width:7px; height:7px; background:var(--cyan); border-radius:50%; margin-right:6px; box-shadow:0 0 10px var(--cyan); }
+    .hud { max-width:1500px; margin:0 auto; display:grid; grid-template-columns:minmax(190px, .75fr) minmax(360px, 1.5fr) minmax(190px, .75fr); gap:18px; min-height:560px; align-items:center; }
+    .rail { display:grid; gap:13px; z-index:1; }
+    .module { border:1px solid var(--line); background:var(--panel); padding:15px; position:relative; clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,12px 100%,0 calc(100% - 12px)); }
+    .module:before { content:""; position:absolute; left:0; top:0; width:28px; border-top:2px solid var(--cyan); }
+    .module-title { color:var(--cyan); font-size:10px; letter-spacing:2px; margin-bottom:13px; }
+    .metric { display:flex; justify-content:space-between; gap:12px; padding:6px 0; border-bottom:1px solid rgba(35,196,218,.1); color:var(--muted); font-size:10px; }
+    .metric:last-child { border-bottom:0; }
+    .metric b { color:var(--ink); font-weight:400; text-align:right; }
+    .bar { height:4px; margin-top:9px; background:#0b3041; overflow:hidden; }
+    .bar i { display:block; height:100%; width:72%; background:var(--cyan); box-shadow:0 0 10px var(--cyan); }
+    .bar.amber i { width:35%; background:var(--amber); box-shadow:0 0 10px var(--amber); }
+    .ring-zone { height:560px; display:grid; place-items:center; position:relative; }
+    .ring-zone:before { content:""; position:absolute; width:90%; height:1px; background:var(--line); }
+    .ring-zone:after { content:""; position:absolute; width:1px; height:90%; background:var(--line); }
+    .reactor { width:min(430px,72vw); aspect-ratio:1; border:1px solid color-mix(in srgb,var(--accent) 70%,transparent); border-radius:50%; position:relative; display:grid; place-items:center; box-shadow:0 0 55px var(--accent-soft), inset 0 0 30px var(--accent-soft); transition:all .45s ease; }
+    .reactor:before,.reactor:after { content:""; position:absolute; border-radius:50%; }
+    .reactor:before { inset:24px; border:1px dashed color-mix(in srgb,var(--accent) 58%,transparent); animation:spin 22s linear infinite; }
+    .reactor:after { inset:58px; border:2px solid var(--accent); border-left-color:transparent; border-right-color:transparent; animation:spin 7s linear infinite reverse; box-shadow:0 0 18px var(--accent-soft); }
+    .orbit { position:absolute; inset:-13px 38px; border:1px solid color-mix(in srgb,var(--accent) 38%,transparent); border-radius:50%; transform:rotate(-28deg); animation:spin 14s linear infinite; transition:border-color .45s ease; }
+    .orbit:before,.orbit:after { content:""; position:absolute; width:7px; height:7px; background:var(--accent); border-radius:50%; box-shadow:0 0 12px var(--accent); }
+    .orbit:before { top:22px; left:24%; } .orbit:after { bottom:23px; right:17%; background:var(--amber); box-shadow:0 0 12px var(--amber); }
+    .core { width:100px; height:100px; border-radius:50%; background:radial-gradient(circle,#efffff 0 4%,var(--accent) 10%,color-mix(in srgb,var(--accent) 45%,#001a2b) 40%,transparent 70%); box-shadow:0 0 24px var(--accent),0 0 80px var(--accent-soft); animation:pulse 2.4s ease-in-out infinite; z-index:1; transition:all .45s ease; }
+    .core:before,.core:after { content:""; position:absolute; inset:calc(50% - 68px); border:1px solid color-mix(in srgb,var(--accent) 58%,transparent); border-radius:50%; animation:spin 5s linear infinite reverse; }
+    .core:after { inset:calc(50% - 47px); border-style:dotted; animation-duration:2.6s; }
+    .scan-line { position:absolute; left:17%; right:17%; height:1px; top:50%; background:var(--accent); box-shadow:0 0 12px var(--accent); opacity:.75; animation:scan 3.4s ease-in-out infinite; z-index:2; }
+    .crosshair { position:absolute; inset:18%; border:1px solid color-mix(in srgb,var(--accent) 28%,transparent); border-radius:50%; }
+    .crosshair span { position:absolute; color:var(--accent); font-size:10px; } .crosshair .a{top:-7px;left:48%;}.crosshair .b{bottom:-7px;left:48%;}.crosshair .c{left:-8px;top:48%;}.crosshair .d{right:-8px;top:48%;}
+    .core-label { position:absolute; bottom:42px; color:var(--accent); font-size:10px; letter-spacing:3px; transition:color .45s ease; }
+    .state-box { position:absolute; top:21px; left:50%; transform:translateX(-50%); color:var(--accent); font-size:12px; letter-spacing:2px; white-space:nowrap; transition:color .45s ease; }
+    .mode-note { position:absolute; bottom:21px; right:22px; color:var(--muted); font-size:9px; letter-spacing:1px; }
+    .state-box b { font-weight:400; }
+    @keyframes spin { to { transform:rotate(360deg); } } @keyframes pulse { 50% { transform:scale(.84); filter:brightness(1.25); } } @keyframes scan { 0%,100%{transform:translateY(-76px);opacity:.15} 50%{transform:translateY(76px);opacity:.9} }
+    .bottom { max-width:1500px; margin:0 auto; display:grid; grid-template-columns:1fr 1.4fr 1fr; gap:18px; position:relative; z-index:2; }
+    .bottom .module { min-height:132px; }
+    .queue-row { display:grid; grid-template-columns:23px 1fr auto; gap:8px; align-items:center; padding:8px 0; border-bottom:1px solid rgba(35,196,218,.11); font-size:10px; }
+    .queue-row:last-child { border-bottom:0; }.queue-row strong{font-weight:400;color:var(--ink)}.queue-row small{display:block;color:var(--muted);margin-top:3px;font-size:9px}.badge{color:var(--amber);font-size:9px}.badge.ready{color:var(--cyan)}.badge.blocked{color:var(--red)}
+    .command { display:flex; flex-wrap:wrap; gap:7px; }.command span { padding:7px 8px; border:1px solid rgba(35,196,218,.25); color:var(--muted); font-size:9px; }
+    .footer { max-width:1500px; margin:17px auto 0; display:flex; justify-content:space-between; color:var(--muted); font-size:9px; letter-spacing:1px; }
+    @media(max-width:900px){.hud{grid-template-columns:1fr;min-height:0}.ring-zone{height:430px;order:-1}.rail{grid-template-columns:1fr 1fr}.bottom{grid-template-columns:1fr}.top-readout{display:none}.footer{display:block;line-height:2}.reactor{width:min(370px,82vw)}}
+    @media(max-width:560px){.app{padding:16px 12px}.rail{grid-template-columns:1fr}.ring-zone{height:370px}.reactor{width:78vw}.core-label{bottom:28px}.sub{font-size:9px}.title{gap:10px}.mark{width:38px;height:38px;font-size:17px}h1{letter-spacing:3px}}
+    @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important}}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <div class="title"><div class="mark">J</div><div><p class="overline">PERSONAL ARTIFICIAL INTELLIGENCE</p><h1>J.A.R.V.I.S.</h1><p class="sub">LOCAL COMMAND INTERFACE // SIR GERALD</p></div></div>
+      <div class="top-readout"><div><span class="led" id="led"></span><b id="connection">SYSTEM LINKED</b></div><div>LOCALHOST:8765</div><div id="clock">--:--:--</div></div>
+    </header>
+
+    <section class="hud">
+      <div class="rail">
+        <div class="module"><div class="module-title">SYSTEM TELEMETRY</div><div class="metric"><span>CORE STATE</span><b id="stateSide">IDLE</b></div><div class="metric"><span>VOICE OUTPUT</span><b>RYAN / EN-GB</b></div><div class="metric"><span>INPUT</span><b>REALTEK MIC</b></div><div class="metric"><span>NETWORK</span><b>AVAILABLE</b></div><div class="bar"><i></i></div></div>
+        <div class="module"><div class="module-title">PROCESS LOAD</div><div class="metric"><span>RESPONSE ENGINE</span><b>READY</b></div><div class="metric"><span>MEMORY BUFFER</span><b>TRIMMED</b></div><div class="metric"><span>VOICE PIPELINE</span><b>STANDBY</b></div><div class="bar amber"><i></i></div></div>
+      </div>
+
+      <div class="ring-zone"><div class="state-box">STATUS // <b id="state">IDLE</b></div><div class="reactor"><div class="orbit"></div><div class="crosshair"><span class="a">N</span><span class="b">S</span><span class="c">W</span><span class="d">E</span></div><div class="scan-line"></div><div class="core"></div><div class="core-label">NEURAL CORE</div><div class="mode-note">MODE ADAPTIVE</div></div></div>
+
+      <div class="rail">
+        <div class="module"><div class="module-title">CURRENT DIRECTIVE</div><div id="task" style="font-size:12px;line-height:1.6;color:var(--ink);min-height:58px">Standing by for your next instruction.</div><div class="metric"><span>LAST SIGNAL</span><b id="updated">--</b></div></div>
+        <div class="module"><div class="module-title">SAFETY PROTOCOL</div><div class="metric"><span>FINANCIAL ACCESS</span><b style="color:var(--red)">BLOCKED</b></div><div class="metric"><span>OUTSIDE ACTIONS</span><b style="color:var(--amber)">APPROVAL</b></div><div class="metric"><span>LOCAL WORK</span><b style="color:var(--cyan)">AVAILABLE</b></div></div>
+      </div>
+    </section>
+
+    <section class="bottom">
+      <div class="module"><div class="module-title">BUSINESS QUEUE // READ ONLY</div><div id="queue"><div class="queue-row"><span>--</span><div><strong>NO PROJECT LOADED</strong><small>Say: execute business idea for ...</small></div><span class="badge">STANDBY</span></div></div></div>
+      <div class="module"><div class="module-title">COMMAND MEMORY</div><div class="command"><span>EXECUTE BUSINESS IDEA FOR ...</span><span>SHOW MY BUSINESS TASKS</span><span>APPROVE TASK 2</span><span>WHAT HAVE YOU MADE?</span><span>QUIT</span></div></div>
+      <div class="module"><div class="module-title">SYSTEM MESSAGE</div><div style="font-size:11px;line-height:1.65;color:var(--muted)">All external and financial actions remain outside the command deck. A sensible arrangement, frankly.</div></div>
+    </section>
+    <div class="footer"><span>JARVIS // HUD ONLINE</span><span>DESIGNED FOR LOCAL OPERATION</span></div>
+  </div>
+  <script>
+    const $ = id => document.getElementById(id);
+    function tickClock(){ $('clock').textContent = new Date().toLocaleTimeString([], {hour12:false}); }
+    function time(value){ if(!value)return '--'; const date=new Date(value); return Number.isNaN(date.getTime())?'--':date.toLocaleTimeString([], {hour12:false}); }
+    function render(data){ const state=(data.state||'IDLE').toLowerCase(); document.body.className='mode-'+state; const label=state.toUpperCase(); $('state').textContent=label; $('stateSide').textContent=label; $('task').textContent=data.task_text||'Standing by for your next instruction.'; $('updated').textContent=time(data.updated_at); $('connection').textContent='SYSTEM LINKED'; $('led').style.background='var(--accent)'; }
+    async function refresh(){ try{ const response=await fetch('/state?ts='+Date.now(),{cache:'no-store'}); if(!response.ok)throw Error(); render(await response.json()); }catch(e){ $('connection').textContent='LINK LOST'; $('led').style.background='var(--red)'; } }
+    tickClock(); setInterval(tickClock,1000); refresh(); setInterval(refresh,1200);
+  </script>
+</body>
+</html>

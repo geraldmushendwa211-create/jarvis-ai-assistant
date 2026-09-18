@@ -67,6 +67,18 @@ GEMINI_API_KEY=AIza...your-key...
 Optional: set `GEMINI_MODEL` to any model your key can access
 (default `gemini-3.5-flash`).
 
+Voice output defaults to Edge TTS at a slightly slower, more natural pace. An
+optional local Kokoro setup is available in `requirements-kokoro.txt`; it
+requires a separate Python 3.11/3.12 environment because Kokoro does not
+support the project's Python 3.14 environment. Set `JARVIS_TTS_ENGINE=kokoro`
+only when running Jarvis from that separate environment. The default Edge TTS
+path remains available as a fallback.
+
+To change the Edge voice, set `JARVIS_TTS_VOICE` in `.env`. Available options
+include `en-GB-RyanNeural` (British male), `en-GB-SoniaNeural` (British female),
+`en-US-GuyNeural` (American male), `en-US-AriaNeural` (American female), and
+`en-AU-WilliamNeural` (Australian male). Restart Jarvis after changing it.
+
 > `.env` is git-ignored. **Never commit your key.** If you did by accident,
 > revoke it at [Google AI Studio](https://aistudio.google.com/apikey) and mint a new one.
 

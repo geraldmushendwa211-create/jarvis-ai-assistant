@@ -8,6 +8,7 @@ env/
 *.egg-info/
 dist/
 build/
+*.spec
 
 # ---- Secrets & local config ----
 .env
